@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>구매 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  .status-badge { display:inline-flex;align-items:center;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600; }
+  .s-draft    { background:#dbeafe;color:#1d4ed8; }
+  .s-ordered  { background:#ffedd5;color:#c2410c; }
+  .s-partial  { background:#fef9c3;color:#854d0e; }
+  .s-shipped  { background:#ede9fe;color:#6d28d9; }
+  .s-done     { background:#dcfce7;color:#15803d; }
+  .row-sel    { background:#eff6ff!important; }
+  ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+  .item-row input { border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;font-size:12px;width:100%; }
+  .item-row input:focus { outline:none;border-color:#3b82f6; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 판매</a>
+    <a href="/purchases.html" class="nav-link active">🛒 구매</a>
+    <a href="/customers.html" class="nav-link">👤 고객</a>
+    <a href="/as.html" class="nav-link">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link">💰 입금</a>
+    <a href="/products.html" class="nav-link">📦 상품</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 flex overflow-hidden">
+  <!-- 목록 -->
+  <div class="w-[420px] shrink-0 flex flex-col border-r border-slate-200 bg-white">
+    <div class="p-4 border-b border-slate-100">
+      <div class="flex items-center justify-between mb-3">
+        <h1 class="font-bold text-base">구매 / 발주</h1>
+        <button onclick="openNewModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 새 구매</button>
+      </div>
+      <div class="flex gap-1 flex-wrap" id="filter-tabs">
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-white" data-s="all">전체</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="draft">작성중</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="ordered">발주</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="partial">부분입고</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="received">입고완료</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="done">정산완료</button>
+      </div>
+    </div>
+    <div id="purchase-list" class="flex-1 overflow-y-auto divide-y divide-slate-50"></div>
+  </div>
+
+  <!-- 상세 패널 -->
+  <div class="flex-1 flex flex-col overflow-hidden bg-slate-50">
+    <div class="flex-1 flex items-center justify-center text-slate-400 text-sm" id="empty-state">
+      ← 왼쪽에서 구매를 선택하세요
+    </div>
+    <div class="flex-1 flex flex-col overflow-hidden hidden" id="detail-content"></div>
+  </div>
+</div>
+
+<!-- 새 구매 모달 -->
+<div id="new-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[480px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">새 구매 작성</h2>
+      <button onclick="closeNewModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="flex flex-col gap-3">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">공급업체 선택 (선택)</label>
+        <select id="new-vendor-sel" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <option value="">-- 거래처에서 선택 --</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">공급업체명 *</label>
+        <input id="new-vendor" type="text" placeholder="공급업체명 직접 입력" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">구매 번호</label>
+          <input id="new-no" type="text" placeholder="자동 생성" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">날짜</label>
+          <input id="new-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모 (선택)</label>
+        <input id="new-memo" type="text" placeholder="품목 요약, 현장명 등" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="createPurchase()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">생성</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STATUS_LABEL = { draft:'작성중', ordered:'발주', partial:'부분입고', received:'입고완료', done:'정산완료' };
+const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', received:'s-shipped', done:'s-done' };
+const STATUS_FLOW  = { draft:'ordered', ordered:'received', partial:'received', received:'done' };
+const STATUS_BTN   = { draft:'발주 확정', ordered:'입고 처리', partial:'입고 처리', received:'정산 완료' };
+
+let purchases = [], customers = [], curFilter = 'all', curId = null, curItems = [], curPayments = [];
+
+async function init() {
+  [purchases, customers] = await Promise.all([
+    fetch('/api/purchases').then(r=>r.json()),
+    fetch('/api/customers').then(r=>r.json()),
+  ]);
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  const sel = document.getElementById('new-vendor-sel');
+  customers.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  sel.onchange = () => {
+    const c = customers.find(x=>x.id===sel.value);
+    if (c) document.getElementById('new-vendor').value = c.name;
+  };
+  document.getElementById('new-date').value = new Date().toISOString().slice(0,10);
+}
+
+function filtered() {
+  if (curFilter === 'all') return purchases;
+  return purchases.filter(p => p.purchase_status === curFilter);
+}
+
+function renderList() {
+  const list = document.getElementById('purchase-list');
+  const rows = filtered();
+  if (!rows.length) { list.innerHTML = '<div class="p-6 text-center text-slate-400 text-sm">항목 없음</div>'; return; }
+  list.innerHTML = rows.map(p => {
+    const unpaid = (p.total||0) - (p.total_paid||0);
+    return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===p.id?'row-sel':''}" onclick="selectPurchase(${p.id})">
+      <div class="flex items-center justify-between mb-1">
+        <span class="font-medium text-sm truncate max-w-[180px]">${p.vendor||'—'}</span>
+        <span class="status-badge ${STATUS_CLS[p.purchase_status]||'s-draft'}">${STATUS_LABEL[p.purchase_status]||p.purchase_status}</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-slate-400">${p.no||'#'+p.id} · ${p.date||''}</span>
+        <div class="text-right">
+          <div class="text-xs font-semibold text-slate-700">${(p.total||0).toLocaleString()}원</div>
+          ${unpaid>0 ? `<div class="text-xs text-red-500">미결 ${unpaid.toLocaleString()}원</div>` : ''}
+        </div>
+      </div>
+      ${p.items ? `<div class="text-xs text-slate-400 mt-1 truncate">${p.items}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('filter-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  curFilter = btn.dataset.s;
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.className = 'tab-btn px-3 py-1 rounded-full text-xs font-medium ' + (b===btn ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600');
+  });
+  renderList();
+});
+
+async function selectPurchase(id) {
+  curId = id;
+  renderList();
+  const purchase = purchases.find(p => p.id === id);
+  if (!purchase) return;
+
+  [curItems, curPayments] = await Promise.all([
+    fetch(`/api/purchase_items/purchase/${id}`).then(r=>r.json()),
+    fetch(`/api/purchase_payments/purchase/${id}`).then(r=>r.json()),
+  ]);
+
+  const unpaid = (purchase.total||0) - (purchase.total_paid||0);
+  const nextStatus = STATUS_FLOW[purchase.purchase_status];
+
+  document.getElementById('empty-state').classList.add('hidden');
+  const dc = document.getElementById('detail-content');
+  dc.classList.remove('hidden');
+  dc.innerHTML = `
+    <div class="p-5 border-b border-slate-200 bg-white">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-bold text-base">${purchase.vendor||'—'}</span>
+            <span class="status-badge ${STATUS_CLS[purchase.purchase_status]||'s-draft'}">${STATUS_LABEL[purchase.purchase_status]||purchase.purchase_status}</span>
+          </div>
+          <div class="text-xs text-slate-400">${purchase.no||'#'+purchase.id} · ${purchase.date||''}</div>
+        </div>
+        ${nextStatus ? `<button onclick="advanceStatus(${purchase.id},'${nextStatus}')" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">${STATUS_BTN[purchase.purchase_status]}</button>` : ''}
+      </div>
+      <div class="grid grid-cols-4 gap-3 mt-4">
+        <div class="bg-slate-50 rounded-lg p-2 text-center">
+          <div class="text-xs text-slate-400">공급가</div>
+          <div class="text-sm font-semibold">${Math.round((purchase.total||0)/1.1).toLocaleString()}</div>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-2 text-center">
+          <div class="text-xs text-slate-400">합계</div>
+          <div class="text-sm font-semibold">${(purchase.total||0).toLocaleString()}</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-2 text-center">
+          <div class="text-xs text-slate-400">결제</div>
+          <div class="text-sm font-semibold text-green-700">${(purchase.total_paid||0).toLocaleString()}</div>
+        </div>
+        <div class="bg-${unpaid>0?'red':'slate'}-50 rounded-lg p-2 text-center">
+          <div class="text-xs text-slate-400">미지급</div>
+          <div class="text-sm font-semibold text-${unpaid>0?'red-600':'slate-400'}">${unpaid.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="border-b border-slate-200 bg-white px-5 flex gap-4" id="detail-tabs">
+      <button class="detail-tab py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-tab="items">품목</button>
+      <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="payments">결제</button>
+      <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="receipts">입고</button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-5" id="tab-content"></div>
+  `;
+
+  renderTab('items');
+  document.getElementById('detail-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.detail-tab');
+    if (!btn) return;
+    document.querySelectorAll('.detail-tab').forEach(b => {
+      b.className = 'detail-tab py-2 text-sm font-medium border-b-2 ' + (b===btn ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500');
+    });
+    renderTab(btn.dataset.tab);
+  });
+}
+
+function renderTab(tab) {
+  const tc = document.getElementById('tab-content');
+  if (tab === 'items') renderItemsTab(tc);
+  else if (tab === 'payments') renderPaymentsTab(tc);
+  else if (tab === 'receipts') renderReceiptsTab(tc);
+}
+
+function renderItemsTab(tc) {
+  const purchase = purchases.find(p => p.id === curId);
+  const isDone = purchase?.purchase_status === 'done';
+  tc.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-sm font-semibold">품목 목록</span>
+      ${!isDone ? `<div class="flex gap-2">
+        <button onclick="addItemRow()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50">+ 행 추가</button>
+        <button onclick="saveItems()" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+      </div>` : ''}
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50 text-slate-500">
+          <tr>
+            <th class="p-2 text-left font-medium">품목명</th>
+            <th class="p-2 text-left font-medium">규격</th>
+            <th class="p-2 text-right font-medium w-16">수량</th>
+            <th class="p-2 text-left font-medium w-14">단위</th>
+            <th class="p-2 text-right font-medium w-24">단가</th>
+            <th class="p-2 text-right font-medium w-24">금액</th>
+            <th class="p-2 text-right font-medium w-16">입고</th>
+            ${!isDone ? '<th class="p-2 w-8"></th>' : ''}
+          </tr>
+        </thead>
+        <tbody id="items-tbody">
+          ${curItems.map((it,i) => itemRow(it, i, isDone)).join('')}
+        </tbody>
+        <tfoot class="border-t border-slate-100">
+          <tr>
+            <td colspan="5" class="p-2 text-right font-semibold text-slate-600">합계</td>
+            <td class="p-2 text-right font-bold">${curItems.reduce((s,it)=>s+(it.qty*it.unit_price),0).toLocaleString()}원</td>
+            <td></td>
+            ${!isDone ? '<td></td>' : ''}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+}
+
+function itemRow(it, i, isDone) {
+  const amt = (it.qty||0)*(it.unit_price||0);
+  if (isDone) return `<tr class="border-t border-slate-50">
+    <td class="p-2">${it.name}</td><td class="p-2 text-slate-500">${it.spec||''}</td>
+    <td class="p-2 text-right">${it.qty}</td><td class="p-2">${it.unit}</td>
+    <td class="p-2 text-right">${(it.unit_price||0).toLocaleString()}</td>
+    <td class="p-2 text-right">${amt.toLocaleString()}</td>
+    <td class="p-2 text-right text-blue-600">${it.received_qty||0}</td>
+  </tr>`;
+  return `<tr class="item-row border-t border-slate-50" data-idx="${i}">
+    <td class="p-1"><input value="${it.name||''}" placeholder="품목명" onchange="curItems[${i}].name=this.value"></td>
+    <td class="p-1"><input value="${it.spec||''}" placeholder="규격" onchange="curItems[${i}].spec=this.value"></td>
+    <td class="p-1"><input type="number" value="${it.qty||0}" min="0" step="0.01" style="width:60px" onchange="curItems[${i}].qty=parseFloat(this.value)||0;updateAmounts()"></td>
+    <td class="p-1"><input value="${it.unit||'EA'}" style="width:50px" onchange="curItems[${i}].unit=this.value"></td>
+    <td class="p-1"><input type="number" value="${it.unit_price||0}" min="0" style="width:90px;text-align:right" onchange="curItems[${i}].unit_price=parseInt(this.value)||0;updateAmounts()"></td>
+    <td class="p-2 text-right item-amt">${amt.toLocaleString()}</td>
+    <td class="p-2 text-right text-blue-600">${it.received_qty||0}</td>
+    <td class="p-1 text-center"><button onclick="removeItem(${i})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
+  </tr>`;
+}
+
+function updateAmounts() {
+  document.querySelectorAll('.item-row').forEach((tr,i) => {
+    const it = curItems[i];
+    if (it) tr.querySelector('.item-amt').textContent = ((it.qty||0)*(it.unit_price||0)).toLocaleString();
+  });
+}
+function addItemRow() {
+  curItems.push({ name:'', spec:'', unit:'EA', qty:0, unit_price:0, received_qty:0, note:'' });
+  renderTab('items');
+}
+function removeItem(i) { curItems.splice(i, 1); renderTab('items'); }
+
+async function saveItems() {
+  await fetch(`/api/purchase_items/purchase/${curId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(curItems) });
+  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  alert('저장됐습니다.');
+}
+
+function renderPaymentsTab(tc) {
+  tc.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-sm font-semibold">결제 내역</span>
+      <button onclick="showPayForm()" class="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700">+ 결제 등록</button>
+    </div>
+    <div id="pay-form" class="hidden bg-white rounded-xl border border-slate-200 p-4 mb-3">
+      <div class="grid grid-cols-3 gap-2 mb-2">
+        <div>
+          <label class="text-xs text-slate-500">금액</label>
+          <input id="pf-amount" type="number" placeholder="0" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">결제일</label>
+          <input id="pf-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">메모</label>
+          <input id="pf-note" type="text" placeholder="선급금, 잔금..." class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="document.getElementById('pay-form').classList.add('hidden')" class="text-xs px-3 py-1 border border-slate-200 rounded hover:bg-slate-50">취소</button>
+        <button onclick="submitPayment()" class="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">등록</button>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      ${curPayments.length === 0 ? '<div class="p-4 text-center text-slate-400 text-sm">결제 내역 없음</div>' :
+        `<table class="w-full text-xs">
+          <thead class="bg-slate-50"><tr>
+            <th class="p-2 text-left font-medium text-slate-500">결제일</th>
+            <th class="p-2 text-right font-medium text-slate-500">금액</th>
+            <th class="p-2 text-left font-medium text-slate-500">메모</th>
+            <th class="p-2 w-8"></th>
+          </tr></thead>
+          <tbody>${curPayments.map(p=>`
+            <tr class="border-t border-slate-50">
+              <td class="p-2">${p.paid_at||'—'}</td>
+              <td class="p-2 text-right font-semibold text-red-700">${(p.amount||0).toLocaleString()}원</td>
+              <td class="p-2 text-slate-500">${p.note||''}</td>
+              <td class="p-2 text-center"><button onclick="delPayment(${p.id})" class="text-slate-300 hover:text-red-400">×</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`}
+    </div>
+  `;
+}
+
+function showPayForm() { document.getElementById('pay-form').classList.remove('hidden'); }
+
+async function submitPayment() {
+  const amount = parseInt(document.getElementById('pf-amount').value);
+  if (!amount) return alert('금액을 입력하세요.');
+  await fetch('/api/purchase_payments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    purchase_id: curId, amount, paid_at: document.getElementById('pf-date').value, note: document.getElementById('pf-note').value
+  })});
+  curPayments = await fetch(`/api/purchase_payments/purchase/${curId}`).then(r=>r.json());
+  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  renderPaymentsTab(document.getElementById('tab-content'));
+}
+
+async function delPayment(id) {
+  if (!confirm('삭제할까요?')) return;
+  await fetch(`/api/purchase_payments/${id}`, { method:'DELETE' });
+  curPayments = await fetch(`/api/purchase_payments/purchase/${curId}`).then(r=>r.json());
+  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  renderPaymentsTab(document.getElementById('tab-content'));
+}
+
+function renderReceiptsTab(tc) {
+  const purchase = purchases.find(p => p.id === curId);
+  const canReceive = purchase && ['ordered','partial'].includes(purchase.purchase_status);
+  tc.innerHTML = `
+    <div class="text-sm font-semibold mb-3">입고 처리</div>
+    ${!curItems.length ? '<div class="text-sm text-slate-400">품목을 먼저 등록하세요.</div>' :
+    `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden mb-4">
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50"><tr>
+          <th class="p-2 text-left font-medium text-slate-500">품목</th>
+          <th class="p-2 text-right font-medium text-slate-500">발주</th>
+          <th class="p-2 text-right font-medium text-slate-500">입고완료</th>
+          <th class="p-2 text-right font-medium text-slate-500">잔여</th>
+          ${canReceive ? '<th class="p-2 text-right font-medium text-slate-500">이번 입고</th><th class="p-2"></th>' : ''}
+        </tr></thead>
+        <tbody>${curItems.map(it => {
+          const remain = (it.qty||0) - (it.received_qty||0);
+          return `<tr class="border-t border-slate-50">
+            <td class="p-2">${it.name}<br><span class="text-slate-400">${it.spec||''}</span></td>
+            <td class="p-2 text-right">${it.qty} ${it.unit}</td>
+            <td class="p-2 text-right text-blue-600">${it.received_qty||0}</td>
+            <td class="p-2 text-right ${remain>0?'text-orange-600':'text-slate-400'}">${remain}</td>
+            ${canReceive ? `<td class="p-2"><input type="number" id="recv-${it.id}" min="0" max="${remain}" step="0.01" value="0" style="width:70px;border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;text-align:right"></td>
+            <td class="p-2"><button onclick="submitReceiptItem(${it.id},${curId})" class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">입고</button></td>` : ''}
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`}
+  `;
+}
+
+async function submitReceiptItem(itemId, purchaseId) {
+  const qty = parseFloat(document.getElementById(`recv-${itemId}`).value);
+  if (!qty || qty <= 0) return alert('수량을 입력하세요.');
+  await fetch('/api/purchase_receipts', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    purchase_id: purchaseId, item_id: itemId, qty, received_at: new Date().toISOString().slice(0,10)
+  })});
+  [curItems, purchases] = await Promise.all([
+    fetch(`/api/purchase_items/purchase/${purchaseId}`).then(r=>r.json()),
+    fetch('/api/purchases').then(r=>r.json()),
+  ]);
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  renderReceiptsTab(document.getElementById('tab-content'));
+  await selectPurchase(purchaseId);
+}
+
+async function advanceStatus(id, next) {
+  if (!confirm(`"${STATUS_LABEL[next]}" 상태로 변경할까요?`)) return;
+  await fetch(`/api/purchases/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:next }) });
+  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectPurchase(id);
+}
+
+function openNewModal() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth()+1).padStart(2,'0');
+  const dd = String(now.getDate()).padStart(2,'0');
+  const cnt = purchases.filter(p => p.date === now.toISOString().slice(0,10)).length + 1;
+  document.getElementById('new-no').value = `PO-${yy}${mm}${dd}-${cnt}`;
+  document.getElementById('new-modal').classList.remove('hidden');
+}
+function closeNewModal() { document.getElementById('new-modal').classList.add('hidden'); }
+
+async function createPurchase() {
+  const vendor = document.getElementById('new-vendor').value.trim();
+  if (!vendor) return alert('공급업체명을 입력하세요.');
+  const body = {
+    no: document.getElementById('new-no').value,
+    date: document.getElementById('new-date').value,
+    vendor,
+    vendor_id: document.getElementById('new-vendor-sel').value||'',
+    items: document.getElementById('new-memo').value,
+    total: 0, total_paid: 0, purchase_status: 'draft', status: '진행중',
+  };
+  await fetch('/api/purchases', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  closeNewModal();
+  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases.sort((a,b) => b.id - a.id);
+  renderList();
+  if (purchases.length) selectPurchase(purchases[0].id);
+}
+
+init();
+</script>
+</body>
+</html>

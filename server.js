@@ -93,6 +93,48 @@ db.exec(`
     note TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    no TEXT DEFAULT '',
+    vendor TEXT DEFAULT '',
+    vendor_id TEXT DEFAULT '',
+    items TEXT DEFAULT '',
+    total INTEGER DEFAULT 0,
+    total_paid INTEGER DEFAULT 0,
+    purchase_status TEXT DEFAULT 'draft',
+    date TEXT DEFAULT '',
+    memo TEXT DEFAULT '',
+    status TEXT DEFAULT '진행중'
+  );
+  CREATE TABLE IF NOT EXISTS purchase_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purchase_id INTEGER REFERENCES purchases(id) ON DELETE CASCADE,
+    name TEXT DEFAULT '',
+    spec TEXT DEFAULT '',
+    unit TEXT DEFAULT 'EA',
+    qty REAL DEFAULT 0,
+    unit_price INTEGER DEFAULT 0,
+    received_qty REAL DEFAULT 0,
+    note TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS purchase_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purchase_id INTEGER REFERENCES purchases(id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL,
+    paid_at TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS purchase_receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purchase_id INTEGER REFERENCES purchases(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES purchase_items(id),
+    qty REAL NOT NULL,
+    received_at TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ─── 마이그레이션 ────────────────────────────────────────────
@@ -149,7 +191,9 @@ const TABLES = {
   as_records:  { table: 'as_records',  int: false },
   drawings:    { table: 'drawings',    int: false },
   order_items: { table: 'order_items', int: true  },
-  products:    { table: 'products',    int: true  },
+  products:       { table: 'products',       int: true  },
+  purchases:      { table: 'purchases',      int: true  },
+  purchase_items: { table: 'purchase_items', int: true  },
 };
 
 // ─── 직렬화 / 역직렬화 ──────────────────────────────────────
@@ -216,6 +260,22 @@ function autoStatus(orderId) {
   const anyShipped = items.some(i => i.shipped_qty > 0);
   if (allShipped) db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run('shipped', orderId);
   else if (anyShipped) db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run('partial', orderId);
+}
+
+function recalcPurchasePaid(purchaseId) {
+  const row = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM purchase_payments WHERE purchase_id=?').get(purchaseId);
+  db.prepare('UPDATE purchases SET total_paid=? WHERE id=?').run(row.s, purchaseId);
+}
+
+function autoReceiveStatus(purchaseId) {
+  const purchase = db.prepare('SELECT * FROM purchases WHERE id=?').get(purchaseId);
+  if (!purchase || purchase.purchase_status === 'done') return;
+  const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id=?').all(purchaseId);
+  if (!items.length) return;
+  const allReceived = items.every(i => i.received_qty >= i.qty);
+  const anyReceived = items.some(i => i.received_qty > 0);
+  if (allReceived) db.prepare('UPDATE purchases SET purchase_status=? WHERE id=?').run('received', purchaseId);
+  else if (anyReceived) db.prepare('UPDATE purchases SET purchase_status=? WHERE id=?').run('partial', purchaseId);
 }
 
 // ─── MIME / CORS ─────────────────────────────────────────────
@@ -382,6 +442,81 @@ const server = http.createServer(async (req, res) => {
   const mCustAS = pathname.match(/^\/api\/customers\/([^/]+)\/as$/);
   if (mCustAS && method === 'GET') {
     return json(res, 200, db.prepare('SELECT * FROM as_records WHERE cust_id=? ORDER BY date DESC').all(mCustAS[1]));
+  }
+
+  // ── /api/purchase_payments ───────────────────────────────────
+  if (pathname === '/api/purchase_payments') {
+    if (method === 'GET') {
+      return json(res, 200, db.prepare('SELECT p.*,q.no,q.vendor FROM purchase_payments p LEFT JOIN purchases q ON p.purchase_id=q.id ORDER BY p.created_at DESC').all());
+    }
+    if (method === 'POST') {
+      const body = await parseBody(req);
+      if (!body || !body.purchase_id || !body.amount) return json(res, 400, { ok:false, error:'purchase_id, amount 필수' });
+      db.prepare('INSERT INTO purchase_payments (purchase_id,amount,paid_at,note) VALUES (?,?,?,?)').run(body.purchase_id, body.amount, body.paid_at||'', body.note||'');
+      recalcPurchasePaid(body.purchase_id);
+      return json(res, 200, { ok:true });
+    }
+  }
+
+  const mPPP = pathname.match(/^\/api\/purchase_payments\/purchase\/(\d+)$/);
+  if (mPPP && method === 'GET') {
+    return json(res, 200, db.prepare('SELECT * FROM purchase_payments WHERE purchase_id=? ORDER BY paid_at').all(parseInt(mPPP[1])));
+  }
+
+  const mPPI = pathname.match(/^\/api\/purchase_payments\/(\d+)$/);
+  if (mPPI && method === 'DELETE') {
+    const id = parseInt(mPPI[1]);
+    const row = db.prepare('SELECT purchase_id FROM purchase_payments WHERE id=?').get(id);
+    db.prepare('DELETE FROM purchase_payments WHERE id=?').run(id);
+    if (row) recalcPurchasePaid(row.purchase_id);
+    return json(res, 200, { ok:true });
+  }
+
+  // ── /api/purchase_receipts ───────────────────────────────────
+  if (pathname === '/api/purchase_receipts' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!body || !body.purchase_id || !body.item_id || !body.qty) return json(res, 400, { ok:false });
+    db.prepare('INSERT INTO purchase_receipts (purchase_id,item_id,qty,received_at,note) VALUES (?,?,?,?,?)').run(body.purchase_id, body.item_id, body.qty, body.received_at||'', body.note||'');
+    db.prepare('UPDATE purchase_items SET received_qty = received_qty + ? WHERE id=?').run(body.qty, body.item_id);
+    autoReceiveStatus(body.purchase_id);
+    return json(res, 200, { ok:true });
+  }
+
+  const mPRP = pathname.match(/^\/api\/purchase_receipts\/purchase\/(\d+)$/);
+  if (mPRP && method === 'GET') {
+    return json(res, 200, db.prepare('SELECT r.*,pi.name as item_name FROM purchase_receipts r LEFT JOIN purchase_items pi ON r.item_id=pi.id WHERE r.purchase_id=? ORDER BY r.received_at').all(parseInt(mPRP[1])));
+  }
+
+  // ── /api/purchase_items/purchase/:id ─────────────────────────
+  const mPIP = pathname.match(/^\/api\/purchase_items\/purchase\/(\d+)$/);
+  if (mPIP) {
+    const purchaseId = parseInt(mPIP[1]);
+    if (method === 'GET') return json(res, 200, db.prepare('SELECT * FROM purchase_items WHERE purchase_id=? ORDER BY sort_order,id').all(purchaseId));
+    if (method === 'PUT') {
+      const body = await parseBody(req);
+      if (!Array.isArray(body)) return json(res, 400, { ok:false });
+      db.transaction(() => {
+        db.prepare('DELETE FROM purchase_items WHERE purchase_id=?').run(purchaseId);
+        body.forEach((item, i) => {
+          db.prepare('INSERT INTO purchase_items (purchase_id,name,spec,unit,qty,unit_price,received_qty,note,sort_order) VALUES (?,?,?,?,?,?,?,?,?)').run(
+            purchaseId, item.name||'', item.spec||'', item.unit||'EA', item.qty||0, item.unit_price||0, item.received_qty||0, item.note||'', i);
+        });
+      })();
+      const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM purchase_items WHERE purchase_id=?').get(purchaseId).s;
+      db.prepare('UPDATE purchases SET total=? WHERE id=?').run(total, purchaseId);
+      return json(res, 200, { ok:true });
+    }
+  }
+
+  // ── PATCH /api/purchases/:id/status ──────────────────────────
+  const mPStat = pathname.match(/^\/api\/purchases\/(\d+)\/status$/);
+  if (mPStat && method === 'PATCH') {
+    const id   = parseInt(mPStat[1]);
+    const body = await parseBody(req);
+    const valid = ['draft','ordered','partial','received','done'];
+    if (!body || !valid.includes(body.status)) return json(res, 400, { ok:false });
+    db.prepare('UPDATE purchases SET purchase_status=? WHERE id=?').run(body.status, id);
+    return json(res, 200, { ok:true });
   }
 
   // ── blob 리소스 ──────────────────────────────────────────────

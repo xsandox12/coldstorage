@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>견적/주문 — ColdStorage</title>
+<title>판매 — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
@@ -35,7 +35,8 @@
   </div>
   <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
     <a href="/" class="nav-link">🏠 대시보드</a>
-    <a href="/orders.html" class="nav-link active">📋 견적/주문</a>
+    <a href="/orders.html" class="nav-link active">📋 판매</a>
+    <a href="/purchases.html" class="nav-link">🛒 구매</a>
     <a href="/customers.html" class="nav-link">👤 고객</a>
     <a href="/as.html" class="nav-link">🔧 A/S</a>
     <a href="/payments.html" class="nav-link">💰 입금</a>
@@ -54,8 +55,8 @@
     <!-- 헤더 -->
     <div class="p-4 border-b border-slate-100">
       <div class="flex items-center justify-between mb-3">
-        <h1 class="font-bold text-base">견적 / 주문</h1>
-        <button onclick="openNewModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 새 견적</button>
+        <h1 class="font-bold text-base">판매</h1>
+        <button onclick="openNewModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 새 판매</button>
       </div>
       <!-- 필터 탭 -->
       <div class="flex gap-1 flex-wrap" id="filter-tabs">
@@ -90,7 +91,7 @@
 <div id="new-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
   <div class="bg-white rounded-2xl p-6 w-[480px] shadow-xl">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="font-bold text-base">새 견적 작성</h2>
+      <h2 class="font-bold text-base">새 판매 작성</h2>
       <button onclick="closeNewModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
     </div>
     <div class="flex flex-col gap-3">
@@ -102,7 +103,7 @@
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="text-xs font-medium text-slate-500 mb-1 block">견적 번호</label>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">판매 번호</label>
           <input id="new-no" type="text" placeholder="자동 생성" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
         </div>
         <div>
