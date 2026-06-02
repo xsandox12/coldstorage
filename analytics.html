@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>매출 분석 — ColdStorage Master</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7;--card:#fff;--line:#e5e7eb;--line-2:#eef0f3;
+  --ink:#0f172a;--mute:#64748b;--soft:#94a3b8;
+  --brand:#1e40af;--brand-soft:#eff4ff;
+  --pos:#059669;--pos-soft:#ecfdf5;--neg:#dc2626;--neg-soft:#fef2f2;
+  --warn:#d97706;--warn-soft:#fef3c7;--violet:#7c3aed;--violet-soft:#f5f3ff;
+  --teal:#0d9488;--teal-soft:#f0fdfa;
+}
+body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;padding:12px 22px;background:#fff;border-bottom:1px solid var(--line);gap:14px;position:sticky;top:0;z-index:10}
+.crumbs{font-size:11.5px;color:var(--mute);font-weight:500}
+.crumbs strong{color:var(--ink);font-weight:700}
+.title{font-size:17px;font-weight:800;letter-spacing:-.01em;margin-right:auto}
+.title small{font-size:11px;color:var(--mute);font-weight:500;margin-left:6px;letter-spacing:0}
+
+/* Period switcher */
+.period{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;height:30px}
+.period button{height:28px;padding:0 11px;background:#fff;border:none;border-right:1px solid var(--line);font-size:11.5px;font-weight:600;color:var(--mute);cursor:pointer;font-family:inherit}
+.period button:last-child{border-right:none}
+.period button.on{background:var(--ink);color:#fff}
+.period button:hover:not(.on){background:#f8fafc}
+
+.btn{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11.5px;font-weight:600;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+.btn:hover{background:#f8fafc}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn.primary:hover{background:#1e3a8a}
+
+/* Layout */
+.wrap{padding:14px 22px 32px;max-width:1640px;margin:0 auto}
+.row{display:grid;gap:10px;margin-bottom:10px}
+
+/* KPI cards */
+.kpis{grid-template-columns:repeat(5,1fr)}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:13px 14px;position:relative;overflow:hidden}
+.kpi .l{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.kpi .l .dot{width:6px;height:6px;border-radius:50%}
+.kpi .v{font-size:24px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.05}
+.kpi .v .u{font-size:13px;font-weight:600;color:var(--soft);margin-left:3px}
+.kpi .d{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .d .pct{padding:2px 6px;border-radius:3px;font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;gap:2px}
+.kpi .d .pct.up{background:var(--pos-soft);color:var(--pos)}
+.kpi .d .pct.dn{background:var(--neg-soft);color:var(--neg)}
+.kpi .d .ctx{color:var(--mute);font-size:10.5px;font-weight:500}
+.kpi .spark{position:absolute;right:8px;bottom:10px;height:30px;width:80px}
+
+/* Card */
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px}
+.card-head{padding:11px 14px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px}
+.card-head h3{font-size:12.5px;font-weight:800;letter-spacing:-.01em}
+.card-head .sub{font-size:10.5px;color:var(--mute);font-weight:500}
+.card-head .right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.tabs{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;height:24px}
+.tabs button{height:22px;padding:0 8px;background:#fff;border:none;border-right:1px solid var(--line);font-size:10.5px;font-weight:600;color:var(--mute);cursor:pointer;font-family:inherit}
+.tabs button:last-child{border-right:none}
+.tabs button.on{background:var(--brand-soft);color:var(--brand)}
+
+.card-body{padding:14px}
+
+/* Main grid */
+.main-grid{grid-template-columns:1.6fr 1fr}
+.split-grid{grid-template-columns:1fr 1fr 1fr}
+.long-grid{grid-template-columns:1.4fr 1fr}
+
+/* Trend chart container */
+.trend-stats{display:flex;gap:18px;padding:0 14px 12px;border-bottom:1px solid var(--line-2)}
+.trend-stat .l{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:3px}
+.trend-stat .v{font-size:18px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.trend-stat.brand .v{color:var(--brand)}
+.trend-stat.muted .v{color:var(--soft);font-weight:600}
+
+/* Donut card with legend */
+.donut-wrap{display:grid;grid-template-columns:1fr 1.1fr;gap:14px;align-items:center}
+.donut-center{text-align:center;position:relative}
+.donut-center canvas{display:block;margin:0 auto}
+.donut-total{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+.donut-total .l{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.donut-total .v{font-size:18px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:1px}
+.legend{display:flex;flex-direction:column;gap:6px}
+.legend .item{display:flex;align-items:center;gap:7px;font-size:11.5px;padding:5px 8px;border-radius:4px}
+.legend .item:hover{background:#f8fafc}
+.legend .item .dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.legend .item .nm{flex:1;font-weight:600;color:var(--ink)}
+.legend .item .v{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.legend .item .pct{color:var(--mute);font-weight:500;font-size:10.5px;margin-left:5px;min-width:32px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* Bars (horizontal) */
+.bars{display:flex;flex-direction:column;gap:9px}
+.bar-row{display:grid;grid-template-columns:80px 1fr 70px;align-items:center;gap:10px;font-size:11.5px}
+.bar-row .nm{font-weight:600}
+.bar-row .track{height:18px;background:#f1f5f9;border-radius:3px;position:relative;overflow:hidden}
+.bar-row .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#1e40af,#3b82f6);border-radius:3px;display:flex;align-items:center;padding:0 6px;color:#fff;font-size:10px;font-weight:700;letter-spacing:.02em}
+.bar-row.brand .fill{background:linear-gradient(90deg,#1e40af,#3b82f6)}
+.bar-row.teal .fill{background:linear-gradient(90deg,#0d9488,#14b8a6)}
+.bar-row.warn .fill{background:linear-gradient(90deg,#d97706,#f59e0b)}
+.bar-row .v{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Map */
+.map-wrap{position:relative;height:280px;padding:6px}
+.map-wrap svg{width:100%;height:100%}
+.region{fill:#e2e8f0;stroke:#fff;stroke-width:1.5;cursor:pointer;transition:fill .15s}
+.region:hover{fill:#1e40af}
+.region.q1{fill:#dbeafe}
+.region.q2{fill:#93c5fd}
+.region.q3{fill:#3b82f6}
+.region.q4{fill:#1e40af}
+.region-label{font-size:9px;font-weight:700;fill:#0f172a;pointer-events:none;text-anchor:middle}
+.region-label.dark{fill:#fff}
+.map-legend{position:absolute;bottom:8px;right:8px;background:#fff;border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:9.5px;color:var(--mute);display:flex;align-items:center;gap:5px}
+.map-legend .scale{display:flex;height:8px;border-radius:2px;overflow:hidden}
+.map-legend .scale > div{width:14px}
+
+/* Table */
+table.t{width:100%;border-collapse:collapse;font-size:11.5px}
+table.t thead th{padding:7px 10px;background:#f8fafc;color:#475569;text-transform:uppercase;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-align:left;border-bottom:1px solid var(--line);position:sticky;top:0}
+table.t thead th.r{text-align:right}
+table.t thead th.c{text-align:center}
+table.t tbody td{padding:7px 10px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+table.t tbody td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+table.t tbody td.c{text-align:center}
+table.t tbody tr:hover td{background:#f8fafc}
+.rank{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#f1f5f9;color:#475569;font-size:10.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.rank.gold{background:#fef3c7;color:#92400e}
+.rank.silver{background:#f1f5f9;color:#475569}
+.rank.bronze{background:#fed7aa;color:#9a3412}
+.avatar{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#0f172a;color:#fff;font-size:10.5px;font-weight:700;margin-right:6px;vertical-align:middle}
+.avatar.blue{background:#1e40af}
+.avatar.teal{background:#0d9488}
+.avatar.warn{background:#d97706}
+.avatar.violet{background:#7c3aed}
+.avatar.pink{background:#be185d}
+
+.tag{display:inline-flex;align-items:center;padding:1px 6px;font-size:9.5px;font-weight:700;letter-spacing:.04em;border-radius:3px;text-transform:uppercase}
+.tag.pos{background:var(--pos-soft);color:var(--pos)}
+.tag.neg{background:var(--neg-soft);color:var(--neg)}
+.tag.brand{background:var(--brand-soft);color:var(--brand)}
+.tag.warn{background:var(--warn-soft);color:#92400e}
+.tag.teal{background:var(--teal-soft);color:#0f766e}
+
+.mini-bar{height:6px;background:#f1f5f9;border-radius:99px;overflow:hidden;width:100%;display:inline-block;vertical-align:middle}
+.mini-bar > div{height:100%;background:var(--brand);border-radius:99px}
+
+/* Funnel */
+.funnel{display:flex;flex-direction:column;gap:4px;padding:4px 0}
+.funnel-step{display:grid;grid-template-columns:90px 1fr 80px;align-items:center;gap:10px;font-size:11.5px}
+.funnel-step .nm{font-weight:600;color:var(--ink)}
+.funnel-step .nm small{display:block;font-size:9.5px;color:var(--mute);font-weight:500;margin-top:1px}
+.funnel-bar{height:32px;background:linear-gradient(90deg,#1e40af,#3b82f6);display:flex;align-items:center;padding:0 10px;color:#fff;font-size:11px;font-weight:700;border-radius:3px}
+.funnel-step:nth-child(2) .funnel-bar{background:linear-gradient(90deg,#1e3a8a,#1e40af);width:100%}
+.funnel-step:nth-child(3) .funnel-bar{background:linear-gradient(90deg,#1e40af,#3b82f6);width:78%}
+.funnel-step:nth-child(4) .funnel-bar{background:linear-gradient(90deg,#3b82f6,#60a5fa);width:54%}
+.funnel-step:nth-child(5) .funnel-bar{background:linear-gradient(90deg,#0d9488,#14b8a6);width:42%}
+.funnel-step .v{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.funnel-step .v small{display:block;color:var(--mute);font-size:9.5px;font-weight:500;margin-top:1px}
+
+/* AR Aging */
+.aging{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.age{padding:10px 12px;border-radius:5px;border:1px solid var(--line);background:#fff}
+.age.fresh{border-color:#bbf7d0;background:var(--pos-soft)}
+.age.warn{border-color:#fde68a;background:var(--warn-soft)}
+.age.late{border-color:#fecaca;background:var(--neg-soft)}
+.age.bad{border-color:#fca5a5;background:#fff1f1}
+.age .l{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:3px}
+.age .v{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.age .ctx{font-size:10px;color:var(--mute);font-weight:500;margin-top:2px}
+.age.warn .v{color:#92400e}
+.age.late .v{color:var(--neg)}
+.age.bad .v{color:#7f1d1d}
+.age.fresh .v{color:#065f46}
+
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="crumbs"><strong>대시보드</strong> · 매출 분석</div>
+  <div class="title">매출 분석 <small>2026년 5월 11일 기준 · 실시간 갱신 3분 전</small></div>
+  <div class="period">
+    <button>일</button><button>주</button>
+    <button class="on">월</button><button>분기</button><button>연</button>
+  </div>
+  <button class="btn">📅 2026.05.01 — 05.11</button>
+  <button class="btn">🏢 전체 지점</button>
+  <button class="btn primary">⤓ 보고서 PDF</button>
+</div>
+
+<div class="wrap">
+
+  <!-- KPI ROW -->
+  <div class="row kpis">
+    <div class="kpi">
+      <div class="l"><span class="dot" style="background:#1e40af"></span>이번 달 매출</div>
+      <div class="v">142.8<span class="u">M ₩</span></div>
+      <div class="d"><span class="pct up">▲ 18.4%</span><span class="ctx">전월 대비 +22.2M</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,22 12,18 24,20 36,14 48,16 60,12 72,10 84,8 100,4" fill="none" stroke="#1e40af" stroke-width="1.6"/>
+        <polyline points="0,22 12,18 24,20 36,14 48,16 60,12 72,10 84,8 100,4 100,30 0,30" fill="url(#g1)" opacity=".15"/>
+        <defs><linearGradient id="g1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1e40af"/><stop offset="1" stop-color="#1e40af" stop-opacity="0"/></linearGradient></defs>
+      </svg>
+    </div>
+    <div class="kpi">
+      <div class="l"><span class="dot" style="background:#059669"></span>영업이익</div>
+      <div class="v">38.2<span class="u">M ₩</span></div>
+      <div class="d"><span class="pct up">▲ 6.1%</span><span class="ctx">마진 26.8%</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,18 12,20 24,16 36,18 48,14 60,12 72,14 84,10 100,8" fill="none" stroke="#059669" stroke-width="1.6"/>
+      </svg>
+    </div>
+    <div class="kpi">
+      <div class="l"><span class="dot" style="background:#7c3aed"></span>견적 → 계약 전환</div>
+      <div class="v">42.3<span class="u">%</span></div>
+      <div class="d"><span class="pct up">▲ 4.8%p</span><span class="ctx">28건 / 66건</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,16 12,14 24,18 36,16 48,12 60,14 72,10 84,12 100,8" fill="none" stroke="#7c3aed" stroke-width="1.6"/>
+      </svg>
+    </div>
+    <div class="kpi">
+      <div class="l"><span class="dot" style="background:#d97706"></span>평균 계약 단가</div>
+      <div class="v">5.1<span class="u">M ₩</span></div>
+      <div class="d"><span class="pct dn">▼ 2.1%</span><span class="ctx">소형 견적 비중↑</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,8 12,10 24,8 36,12 48,10 60,14 72,12 84,16 100,14" fill="none" stroke="#d97706" stroke-width="1.6"/>
+      </svg>
+    </div>
+    <div class="kpi">
+      <div class="l"><span class="dot" style="background:#dc2626"></span>미수금</div>
+      <div class="v">24.6<span class="u">M ₩</span></div>
+      <div class="d"><span class="pct up" style="background:var(--neg-soft);color:var(--neg)">▲ 12건</span><span class="ctx">90일↑ 4.2M</span></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="0,20 12,18 24,16 36,14 48,12 60,10 72,8 84,6 100,4" fill="none" stroke="#dc2626" stroke-width="1.6"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- TREND + DONUT -->
+  <div class="row main-grid">
+    <div class="card">
+      <div class="card-head">
+        <h3>월별 매출 추이</h3>
+        <span class="sub">최근 12개월 · 매출 vs. 영업이익</span>
+        <div class="right">
+          <div class="tabs">
+            <button class="on">매출</button><button>이익</button><button>건수</button>
+          </div>
+          <button class="btn" style="height:24px;font-size:10.5px;padding:0 8px">⋮</button>
+        </div>
+      </div>
+      <div class="trend-stats">
+        <div class="trend-stat brand"><div class="l">YTD 매출</div><div class="v">612.4 M</div></div>
+        <div class="trend-stat"><div class="l">YTD 이익</div><div class="v">164.9 M</div></div>
+        <div class="trend-stat muted"><div class="l">YoY</div><div class="v">+11.2%</div></div>
+        <div class="trend-stat muted"><div class="l">월평균</div><div class="v">102.1 M</div></div>
+        <div class="trend-stat" style="margin-left:auto;text-align:right"><div class="l">목표 달성률</div><div class="v" style="color:#059669">87.3%</div></div>
+      </div>
+      <div class="card-body" style="padding:10px 8px 6px"><canvas id="trendChart" height="120"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>카테고리별 매출</h3>
+        <span class="sub">이번 달</span>
+        <div class="right">
+          <div class="tabs"><button class="on">금액</button><button>건수</button></div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="donut-wrap">
+          <div class="donut-center">
+            <canvas id="donutChart" width="180" height="180"></canvas>
+            <div class="donut-total">
+              <div class="l">합계</div>
+              <div class="v">142.8M</div>
+            </div>
+          </div>
+          <div class="legend">
+            <div class="item"><span class="dot" style="background:#1e40af"></span><span class="nm">저장고 신축</span><span class="v">88.2M</span><span class="pct">61.8%</span></div>
+            <div class="item"><span class="dot" style="background:#0d9488"></span><span class="nm">A/S · 수리</span><span class="v">22.4M</span><span class="pct">15.7%</span></div>
+            <div class="item"><span class="dot" style="background:#7c3aed"></span><span class="nm">정기 점검</span><span class="v">14.8M</span><span class="pct">10.4%</span></div>
+            <div class="item"><span class="dot" style="background:#d97706"></span><span class="nm">증축 · 개조</span><span class="v">11.2M</span><span class="pct">7.8%</span></div>
+            <div class="item"><span class="dot" style="background:#be185d"></span><span class="nm">자재 판매</span><span class="v">6.2M</span><span class="pct">4.3%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REGION MAP + ENGINEER BARS + FUNNEL -->
+  <div class="row split-grid">
+    <div class="card">
+      <div class="card-head">
+        <h3>지역별 매출</h3>
+        <span class="sub">YTD · 시·도 기준</span>
+        <div class="right"><span class="tag brand">8개 지역</span></div>
+      </div>
+      <div class="map-wrap">
+        <svg viewBox="0 0 280 320">
+          <!-- Simplified Korea-ish regions, abstract -->
+          <path class="region q3" d="M60 30 L130 28 L150 60 L120 80 L70 78 Z"/>
+          <text class="region-label dark" x="100" y="56">강원 52M</text>
+
+          <path class="region q4" d="M50 80 L120 80 L130 130 L85 145 L40 130 Z"/>
+          <text class="region-label dark" x="85" y="115">경기 118M</text>
+
+          <path class="region q2" d="M125 60 L195 55 L210 100 L155 110 L130 95 Z"/>
+          <text class="region-label" x="170" y="85">충북 38M</text>
+
+          <path class="region q2" d="M40 135 L120 138 L130 175 L75 188 L30 170 Z"/>
+          <text class="region-label" x="80" y="160">서울 41M</text>
+
+          <path class="region q3" d="M135 135 L210 130 L220 180 L160 200 L130 180 Z"/>
+          <text class="region-label dark" x="175" y="167">충남 64M</text>
+
+          <path class="region q2" d="M30 180 L135 195 L140 235 L80 245 L25 225 Z"/>
+          <text class="region-label" x="80" y="217">전북 35M</text>
+
+          <path class="region q4" d="M140 195 L225 185 L240 240 L175 260 L140 240 Z"/>
+          <text class="region-label dark" x="190" y="222">경북 95M</text>
+
+          <path class="region q1" d="M35 240 L140 245 L150 290 L90 300 L40 290 Z"/>
+          <text class="region-label" x="90" y="270">전남 18M</text>
+
+          <path class="region q3" d="M150 250 L240 250 L245 295 L180 305 L150 290 Z"/>
+          <text class="region-label dark" x="195" y="280">경남 58M</text>
+        </svg>
+        <div class="map-legend">
+          <span>적음</span>
+          <div class="scale">
+            <div style="background:#dbeafe"></div>
+            <div style="background:#93c5fd"></div>
+            <div style="background:#3b82f6"></div>
+            <div style="background:#1e40af"></div>
+          </div>
+          <span>많음</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>기사별 실적</h3>
+        <span class="sub">이번 달 · 매출 기준</span>
+        <div class="right">
+          <div class="tabs"><button class="on">매출</button><button>건수</button><button>만족도</button></div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="bars">
+          <div class="bar-row"><span class="nm"><span class="avatar blue">김</span>김재훈</span><div class="track"><div class="fill" style="width:88%">38.2M</div></div><span class="v">38.2M</span></div>
+          <div class="bar-row"><span class="nm"><span class="avatar teal">박</span>박상호</span><div class="track"><div class="fill" style="width:72%">31.4M</div></div><span class="v">31.4M</span></div>
+          <div class="bar-row"><span class="nm"><span class="avatar warn">정</span>정대호</span><div class="track"><div class="fill" style="width:62%">26.8M</div></div><span class="v">26.8M</span></div>
+          <div class="bar-row"><span class="nm"><span class="avatar violet">최</span>최영민</span><div class="track"><div class="fill" style="width:52%">22.5M</div></div><span class="v">22.5M</span></div>
+          <div class="bar-row"><span class="nm"><span class="avatar pink">한</span>한지원</span><div class="track"><div class="fill" style="width:42%">18.3M</div></div><span class="v">18.3M</span></div>
+          <div class="bar-row"><span class="nm"><span class="avatar" style="background:#475569">강</span>강민준</span><div class="track"><div class="fill" style="width:13%">5.6M</div></div><span class="v">5.6M</span></div>
+        </div>
+        <div style="margin-top:12px;padding:10px 12px;background:#f8fafc;border-radius:4px;display:flex;gap:14px;font-size:10.5px">
+          <div><span style="color:var(--mute);font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">팀 합계</span><div style="font-size:14px;font-weight:800;letter-spacing:-.01em;margin-top:1px;font-variant-numeric:tabular-nums">142.8 M</div></div>
+          <div><span style="color:var(--mute);font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">평균</span><div style="font-size:14px;font-weight:800;letter-spacing:-.01em;margin-top:1px;font-variant-numeric:tabular-nums">23.8 M</div></div>
+          <div><span style="color:var(--mute);font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">건수</span><div style="font-size:14px;font-weight:800;letter-spacing:-.01em;margin-top:1px;font-variant-numeric:tabular-nums">28건</div></div>
+          <div style="margin-left:auto"><span style="color:var(--mute);font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">목표 대비</span><div style="font-size:14px;font-weight:800;letter-spacing:-.01em;margin-top:1px;color:#059669;font-variant-numeric:tabular-nums">87.3%</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>영업 퍼널</h3>
+        <span class="sub">최근 30일</span>
+        <div class="right"><span class="tag pos">▲ 4.8%p</span></div>
+      </div>
+      <div class="card-body">
+        <div class="funnel">
+          <div class="funnel-step">
+            <div class="nm">문의 접수<small>인입 채널 5종</small></div>
+            <div class="funnel-bar" style="width:100%">66건</div>
+            <div class="v">66<small>100%</small></div>
+          </div>
+          <div class="funnel-step">
+            <div class="nm">현장 방문<small>실측 · 컨설팅</small></div>
+            <div class="funnel-bar">51건</div>
+            <div class="v">51<small>77.3%</small></div>
+          </div>
+          <div class="funnel-step">
+            <div class="nm">견적 발송<small>PDF · 서명 요청</small></div>
+            <div class="funnel-bar">36건</div>
+            <div class="v">36<small>54.5%</small></div>
+          </div>
+          <div class="funnel-step">
+            <div class="nm">계약 체결<small>전자서명 완료</small></div>
+            <div class="funnel-bar">28건</div>
+            <div class="v">28<small>42.4%</small></div>
+          </div>
+          <div class="funnel-step">
+            <div class="nm">시공 완료<small>인계 · 잔금</small></div>
+            <div class="funnel-bar">22건</div>
+            <div class="v">22<small>33.3%</small></div>
+          </div>
+        </div>
+        <div style="margin-top:10px;padding:9px 11px;background:var(--brand-soft);border:1px solid #c7d6f5;border-radius:4px;font-size:10.5px;color:var(--brand);line-height:1.5">
+          <strong>인사이트</strong> · 현장 방문 → 견적 발송 단계에서 14건 이탈. 평균 견적 발송 시간 <strong>3.2일</strong> → 1일 이내 단축 시 전환률 +8% 추정.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOP CUSTOMERS + AR AGING -->
+  <div class="row long-grid">
+    <div class="card">
+      <div class="card-head">
+        <h3>매출 상위 고객</h3>
+        <span class="sub">YTD · 매출 기준 상위 8</span>
+        <div class="right">
+          <button class="btn" style="height:24px;font-size:10.5px;padding:0 8px">고객별 분석 →</button>
+        </div>
+      </div>
+      <table class="t">
+        <thead><tr>
+          <th class="c" style="width:36px">#</th><th>고객사</th><th>업종</th><th>지역</th>
+          <th class="c" style="width:60px">거래</th><th class="r">YTD 매출</th><th class="r">평균 단가</th><th style="width:80px">전월</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="c"><span class="rank gold">1</span></td><td><span class="avatar blue">푸</span><strong>푸드원 유통</strong></td><td>식자재 유통</td><td>경기 오산</td><td class="c">14회</td><td class="r">68.4 M</td><td class="r">4.9 M</td><td><span class="tag pos">▲ 24%</span></td></tr>
+          <tr><td class="c"><span class="rank silver">2</span></td><td><span class="avatar teal">동</span><strong>동해수산</strong></td><td>수산물 가공</td><td>강원 강릉</td><td class="c">8회</td><td class="r">52.1 M</td><td class="r">6.5 M</td><td><span class="tag pos">▲ 18%</span></td></tr>
+          <tr><td class="c"><span class="rank bronze">3</span></td><td><span class="avatar warn">한</span><strong>한라농산</strong></td><td>농산물 저장</td><td>제주</td><td class="c">6회</td><td class="r">44.8 M</td><td class="r">7.5 M</td><td><span class="tag pos">▲ 9%</span></td></tr>
+          <tr><td class="c"><span class="rank">4</span></td><td><span class="avatar violet">신</span><strong>신성냉장</strong></td><td>유통 창고</td><td>경기 안성</td><td class="c">11회</td><td class="r">38.2 M</td><td class="r">3.5 M</td><td><span class="tag neg">▼ 5%</span></td></tr>
+          <tr><td class="c"><span class="rank">5</span></td><td><span class="avatar pink">청</span><strong>청정수산</strong></td><td>수산 가공</td><td>전남 여수</td><td class="c">5회</td><td class="r">32.6 M</td><td class="r">6.5 M</td><td><span class="tag pos">▲ 12%</span></td></tr>
+          <tr><td class="c"><span class="rank">6</span></td><td><span class="avatar" style="background:#475569">대</span><strong>대구식품</strong></td><td>식품 제조</td><td>경북 대구</td><td class="c">4회</td><td class="r">28.4 M</td><td class="r">7.1 M</td><td><span class="tag warn">— 0%</span></td></tr>
+          <tr><td class="c"><span class="rank">7</span></td><td><span class="avatar blue">서</span><strong>서울식품</strong></td><td>식품 제조</td><td>서울 강서</td><td class="c">7회</td><td class="r">24.8 M</td><td class="r">3.5 M</td><td><span class="tag pos">▲ 6%</span></td></tr>
+          <tr><td class="c"><span class="rank">8</span></td><td><span class="avatar teal">양</span><strong>양평종합주방</strong></td><td>요식업</td><td>경기 양평</td><td class="c">9회</td><td class="r">22.1 M</td><td class="r">2.5 M</td><td><span class="tag neg">▼ 8%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="card">
+        <div class="card-head">
+          <h3>미수금 현황</h3>
+          <span class="sub">발행일 기준 경과</span>
+          <div class="right"><span class="tag neg">총 24.6M</span></div>
+        </div>
+        <div class="card-body">
+          <div class="aging">
+            <div class="age fresh">
+              <div class="l">0–30일</div>
+              <div class="v">14.2 M</div>
+              <div class="ctx">8건 · 정상</div>
+            </div>
+            <div class="age warn">
+              <div class="l">31–60일</div>
+              <div class="v">5.1 M</div>
+              <div class="ctx">3건 · 알림 완료</div>
+            </div>
+            <div class="age late">
+              <div class="l">61–90일</div>
+              <div class="v">1.1 M</div>
+              <div class="ctx">1건 · 연락 필요</div>
+            </div>
+            <div class="age bad">
+              <div class="l">90일 초과</div>
+              <div class="v">4.2 M</div>
+              <div class="ctx">2건 · 회수 진행</div>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:10.5px;color:var(--mute);margin-bottom:5px">
+              <span style="font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">평균 회수 기간 DSO</span>
+              <span style="font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">23.4일 <span style="color:#059669;font-size:10px">▲ 1.8일 개선</span></span>
+            </div>
+            <div class="mini-bar"><div style="width:62%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-top:3px;font-size:9.5px;color:var(--soft)">
+              <span>0일</span><span style="color:var(--mute);font-weight:600">목표 30일</span><span>60일</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>알림 · 액션</h3>
+          <span class="sub">자동 감지된 이슈 4건</span>
+        </div>
+        <div style="padding:8px 12px 12px">
+          <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:11.5px;align-items:flex-start">
+            <span class="tag neg" style="flex-shrink:0;margin-top:2px">긴급</span>
+            <div style="flex:1"><strong>대성유통 잔금 4.2M 102일 경과</strong><div style="color:var(--mute);font-size:10.5px;margin-top:1px">법무팀 회수 진행 · 마지막 연락 12일 전</div></div>
+            <button class="btn" style="height:22px;font-size:10px;padding:0 7px">처리 →</button>
+          </div>
+          <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:11.5px;align-items:flex-start">
+            <span class="tag warn" style="flex-shrink:0;margin-top:2px">주의</span>
+            <div style="flex:1"><strong>강민준 기사 목표 대비 31% (5.6M)</strong><div style="color:var(--mute);font-size:10.5px;margin-top:1px">신입 · 멘토링 또는 단가 낮은 건 우선 배정 권장</div></div>
+            <button class="btn" style="height:22px;font-size:10px;padding:0 7px">배정 →</button>
+          </div>
+          <div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line-2);font-size:11.5px;align-items:flex-start">
+            <span class="tag brand" style="flex-shrink:0;margin-top:2px">기회</span>
+            <div style="flex:1"><strong>푸드원 유통 1년 점검 시점 도래</strong><div style="color:var(--mute);font-size:10.5px;margin-top:1px">최근 견적 4건 · 평균 5.2M · 정기 점검 제안 발송 추천</div></div>
+            <button class="btn" style="height:22px;font-size:10px;padding:0 7px">메일 →</button>
+          </div>
+          <div style="display:flex;gap:8px;padding:8px 0;font-size:11.5px;align-items:flex-start">
+            <span class="tag teal" style="flex-shrink:0;margin-top:2px">개선</span>
+            <div style="flex:1"><strong>견적 발송 시간 평균 3.2일</strong><div style="color:var(--mute);font-size:10.5px;margin-top:1px">1일 이내 단축 시 전환률 +8% 추정</div></div>
+            <button class="btn" style="height:22px;font-size:10px;padding:0 7px">분석 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Trend chart (last 12 months)
+const months = ['25.06','25.07','25.08','25.09','25.10','25.11','25.12','26.01','26.02','26.03','26.04','26.05'];
+const revenue = [85,92,108,122,135,118,142,98,105,115,120.6,142.8];
+const profit = [22,24,28,32,36,30,38,25,27,30,32,38.2];
+const target = [100,100,105,110,115,115,120,120,120,125,130,135];
+
+new Chart(document.getElementById('trendChart'), {
+  type:'bar',
+  data:{
+    labels:months,
+    datasets:[
+      {label:'매출', data:revenue, backgroundColor:'#1e40af', borderRadius:3, barPercentage:.6, order:2},
+      {label:'영업이익', data:profit, backgroundColor:'#0d9488', borderRadius:3, barPercentage:.6, order:2},
+      {label:'목표', data:target, type:'line', borderColor:'#dc2626', borderWidth:1.5, borderDash:[4,3], pointRadius:0, fill:false, order:1}
+    ]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{position:'bottom',labels:{font:{size:11,family:'Pretendard',weight:'600'},color:'#475569',boxWidth:8,boxHeight:8,padding:14,usePointStyle:true}},
+      tooltip:{backgroundColor:'#0f172a',titleFont:{family:'Pretendard',size:11,weight:'700'},bodyFont:{family:'Pretendard',size:11},padding:8,cornerRadius:4,callbacks:{label:(c)=>c.dataset.label+': '+c.parsed.y+'M'}}
+    },
+    scales:{
+      x:{grid:{display:false},ticks:{font:{size:10,family:'Pretendard'},color:'#94a3b8'},border:{display:false}},
+      y:{grid:{color:'#f1f5f9',drawTicks:false},ticks:{font:{size:10,family:'Pretendard'},color:'#94a3b8',callback:(v)=>v+'M'},border:{display:false}}
+    }
+  }
+});
+
+// Donut
+new Chart(document.getElementById('donutChart'), {
+  type:'doughnut',
+  data:{
+    labels:['저장고 신축','A/S · 수리','정기 점검','증축 · 개조','자재 판매'],
+    datasets:[{
+      data:[88.2,22.4,14.8,11.2,6.2],
+      backgroundColor:['#1e40af','#0d9488','#7c3aed','#d97706','#be185d'],
+      borderColor:'#fff',borderWidth:2
+    }]
+  },
+  options:{
+    cutout:'68%',
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f172a',padding:8,bodyFont:{family:'Pretendard',size:11},callbacks:{label:(c)=>c.label+': '+c.parsed+'M'}}}
+  }
+});
+</script>
+</body>
+</html>

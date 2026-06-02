@@ -1,0 +1,9 @@
+# 테스트 스크린샷
+test_*.png
+
+# omc
+.omc/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "CUST-0001",
+    "name": "푸드원 유통",
+    "rep": "김철수",
+    "business_no": "123-45-67890",
+    "phone": "010-1234-5678",
+    "email": "chulsoo@foodone.com",
+    "address_post": "12345",
+    "address_base": "경기도 오산시 경기대로 123",
+    "address_detail": "푸드원 빌딩 1층",
+    "status": "VIP",
+    "price_group": "A",
+    "total_amount": 45000000,
+    "last_activity": "2026-02-15"
+  },
+  {
+    "id": "CUST-0002",
+    "name": "동해수산",
+    "rep": "이영희",
+    "business_no": "987-65-43210",
+    "phone": "010-9876-5432",
+    "email": "yh.lee@donghae.co.kr",
+    "address_post": "54321",
+    "address_base": "강원도 강릉시 해안로 456",
+    "address_detail": "수산시장 A동",
+    "status": "NORMAL",
+    "price_group": "B",
+    "total_amount": 12500000,
+    "last_activity": "2026-01-20"
+  },
+  {
+    "id": "CUST-0003",
+    "name": "평택 신선농장",
+    "rep": "박만수",
+    "business_no": "111-22-33333",
+    "phone": "031-444-5555",
+    "email": "mansoo@farm.com",
+    "address_post": "09876",
+    "address_base": "경기도 평택시 중앙로 78",
+    "address_detail": "농장 사무동",
+    "status": "NORMAL",
+    "price_group": "A",
+    "total_amount": 32000000,
+    "last_activity": "2026-02-24"
+  },
+  {
+    "id": "CUST-0004",
+    "name": "테스트 냉동창고",
+    "rep": "이테스트",
+    "business_no": "",
+    "phone": "010-9999-0000",
+    "email": "test@frozen.com",
+    "address_post": "",
+    "address_base": "",
+    "address_detail": "",
+    "status": "NORMAL",
+    "price_group": "A",
+    "total_amount": 0,
+    "last_activity": "2026-05-17"
+  }
+]

@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>견적서 PDF — ColdStorage Master</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Pretendard',-apple-system,sans-serif;background:#525659;color:#0f172a;-webkit-font-smoothing:antialiased}
+
+/* PDF viewer chrome */
+.viewer{display:grid;grid-template-rows:48px 1fr;height:100vh}
+.toolbar{background:#323639;color:#e5e7eb;display:flex;align-items:center;padding:0 16px;gap:14px;font-size:12.5px;border-bottom:1px solid #1f2226}
+.toolbar .title{font-weight:600;letter-spacing:-.01em}
+.toolbar .meta{font-size:11px;color:#94a3b8;font-variant-numeric:tabular-nums}
+.toolbar .sep{width:1px;height:20px;background:#4b4f54}
+.toolbar button{height:28px;padding:0 10px;background:transparent;color:#e5e7eb;border:1px solid transparent;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+.toolbar button:hover{background:#454a4f}
+.toolbar button.primary{background:#1e40af;color:#fff}
+.toolbar button.primary:hover{background:#1e3a8a}
+.toolbar .zoom{display:inline-flex;align-items:center;gap:0;border:1px solid #4b4f54;border-radius:4px;height:28px;overflow:hidden}
+.toolbar .zoom button{height:26px;border-radius:0;border:none}
+.toolbar .zoom .pct{padding:0 10px;font-size:11.5px;color:#e5e7eb;font-variant-numeric:tabular-nums;border-left:1px solid #4b4f54;border-right:1px solid #4b4f54;height:26px;display:inline-flex;align-items:center}
+
+.viewer-body{display:grid;grid-template-columns:200px 1fr;overflow:hidden}
+
+/* Page sidebar */
+.thumbs{background:#3a3e42;border-right:1px solid #1f2226;overflow-y:auto;padding:14px 12px}
+.thumbs h3{font-size:10px;color:#94a3b8;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;padding:0 4px}
+.thumb{background:#fff;aspect-ratio:1/1.414;margin-bottom:10px;cursor:pointer;border-radius:2px;position:relative;overflow:hidden;border:2px solid transparent;transition:border-color .15s}
+.thumb.active{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6}
+.thumb:hover:not(.active){border-color:#64748b}
+.thumb-num{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:10.5px;color:#cbd5e1;font-variant-numeric:tabular-nums;font-weight:500}
+.thumb-content{padding:8px;font-size:4px;line-height:1.3;color:#0f172a}
+.thumb-head{display:flex;justify-content:space-between;border-bottom:.5px solid #0f172a;padding-bottom:2px;margin-bottom:3px}
+.thumb-head .t{font-weight:800;font-size:6px}
+.thumb-line{height:1.5px;background:#cbd5e1;border-radius:1px;margin-bottom:2px}
+.thumb-line.dark{background:#475569}
+.thumb-line.w70{width:70%}.thumb-line.w50{width:50%}.thumb-line.w40{width:40%}.thumb-line.w90{width:90%}
+.thumb-row{display:flex;gap:3px;margin-bottom:2px}
+.thumb-row > div{flex:1;height:2px;background:#e2e8f0;border-radius:.5px}
+.thumb-table{margin-top:4px;border:.5px solid #cbd5e1}
+.thumb-table > div{height:3px;border-bottom:.5px solid #e2e8f0;display:flex}
+.thumb-table > div:first-child{background:#f1f5f9}
+
+/* Pages area */
+.pages{overflow:auto;padding:24px 32px;display:flex;flex-direction:column;align-items:center;gap:18px}
+
+/* A4 page — 210x297mm at 96dpi ≈ 794×1123 */
+.page{
+  width:794px;background:#fff;color:#0f172a;
+  box-shadow:0 0 0 1px rgba(0,0,0,.08),0 12px 30px rgba(0,0,0,.45);
+  padding:48px 56px;position:relative;
+  font-size:11px;line-height:1.5;
+}
+.page-num{position:absolute;bottom:18px;right:56px;font-size:9.5px;color:#94a3b8;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+
+/* Header band */
+.doc-header{display:grid;grid-template-columns:1fr auto;gap:24px;border-bottom:2px solid #0f172a;padding-bottom:16px;margin-bottom:24px}
+.doc-title{font-size:32px;font-weight:900;letter-spacing:-.03em;line-height:1}
+.doc-subtitle{font-size:11.5px;color:#64748b;margin-top:5px;letter-spacing:.05em}
+.doc-no{text-align:right}
+.doc-no .l{font-size:9.5px;color:#94a3b8;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.doc-no .v{font-size:13px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;margin-top:2px}
+.doc-no .d{font-size:10.5px;color:#475569;margin-top:6px;font-variant-numeric:tabular-nums}
+
+/* Two-column party block */
+.parties{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.party{border:1px solid #e5e7eb;padding:14px 16px;border-radius:3px;background:#fafbfc}
+.party-label{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#1e40af;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.party-label::before{content:"";width:14px;height:1.5px;background:#1e40af}
+.party-name{font-size:15px;font-weight:800;letter-spacing:-.01em;margin-bottom:2px}
+.party-meta{font-size:10.5px;color:#475569;line-height:1.6}
+.party-meta strong{color:#0f172a;font-weight:600}
+.party-stamp{position:absolute;top:14px;right:14px;width:62px;height:62px;border:2px solid #dc2626;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#dc2626;font-size:11px;font-weight:800;letter-spacing:.05em;transform:rotate(-8deg);opacity:.92;font-family:'Pretendard',sans-serif}
+.party{position:relative}
+
+/* Total panel */
+.total-panel{background:#0f172a;color:#fff;padding:18px 22px;display:grid;grid-template-columns:1fr auto;align-items:center;border-radius:3px;margin-bottom:22px}
+.total-panel .l{font-size:10.5px;color:#94a3b8;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.total-panel .sub{font-size:11px;color:#cbd5e1}
+.total-panel .v{font-size:28px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.total-panel .v .won{font-size:14px;color:#94a3b8;font-weight:600;margin-left:4px}
+
+/* Section heading */
+.sec{display:flex;align-items:center;gap:8px;margin:18px 0 10px}
+.sec .num{width:18px;height:18px;background:#0f172a;color:#fff;border-radius:2px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.sec .t{font-size:13px;font-weight:800;letter-spacing:-.01em}
+.sec .ext{flex:1;height:1px;background:#e5e7eb}
+.sec .meta{font-size:10px;color:#94a3b8;font-weight:600;letter-spacing:.05em}
+
+/* Spec grid */
+.specs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px}
+.spec{border:1px solid #e5e7eb;padding:8px 10px;border-radius:2px}
+.spec .l{font-size:9px;font-weight:700;color:#64748b;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.spec .v{font-size:14px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.spec .v .u{font-size:9.5px;color:#94a3b8;font-weight:600;margin-left:2px}
+
+/* Drawing thumb area */
+.dwg{display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin:8px 0 4px}
+.dwg-canvas{border:1px solid #cbd5e1;background:repeating-linear-gradient(0deg,#fff 0,#fff 19px,#f1f5f9 19px,#f1f5f9 20px),repeating-linear-gradient(90deg,#fff 0,#fff 19px,#f1f5f9 19px,#f1f5f9 20px);background-color:#fff;height:230px;position:relative;border-radius:2px}
+.dwg-label{position:absolute;top:8px;left:10px;font-size:9px;color:#64748b;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:#fff;padding:2px 6px;border:1px solid #e5e7eb;border-radius:2px}
+.dwg-scale{position:absolute;bottom:8px;right:10px;font-size:9px;color:#64748b;font-weight:600;background:#fff;padding:2px 6px;border:1px solid #e5e7eb;border-radius:2px;font-variant-numeric:tabular-nums}
+.dwg-info{display:flex;flex-direction:column;gap:5px}
+.dwg-info .row{display:flex;justify-content:space-between;padding:5px 8px;background:#f8fafc;border-radius:2px;font-size:10.5px}
+.dwg-info .row .k{color:#64748b;font-weight:600}
+.dwg-info .row .v{font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Items table */
+table.items{width:100%;border-collapse:collapse;margin-top:4px;font-size:10.5px}
+table.items thead th{background:#0f172a;color:#fff;padding:8px 9px;text-align:left;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+table.items thead th.r{text-align:right}
+table.items thead th.c{text-align:center;width:38px}
+table.items tbody td{padding:7px 9px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+table.items tbody td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+table.items tbody td.c{text-align:center;color:#64748b;font-weight:600;font-variant-numeric:tabular-nums}
+table.items tbody tr:nth-child(even) td{background:#fafbfc}
+table.items tbody tr.cat td{background:#eff4ff;font-weight:700;font-size:10px;color:#1e40af;letter-spacing:.04em;text-transform:uppercase;padding:5px 9px}
+table.items tbody tr.sub td{background:#f8fafc;font-weight:700}
+.it-name{font-weight:600;color:#0f172a}
+.it-spec{font-size:9.5px;color:#64748b;margin-top:1px;font-family:'JetBrains Mono',ui-monospace,monospace}
+
+/* Subtotal row */
+.subtotal{display:grid;grid-template-columns:1fr 200px;gap:16px;margin-top:14px}
+.subtotal .terms{font-size:10px;color:#475569;line-height:1.6}
+.subtotal .terms strong{display:block;font-size:9px;color:#0f172a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;font-weight:800}
+.subtotal .amounts{font-size:11px}
+.subtotal .amounts .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e5e7eb;font-variant-numeric:tabular-nums}
+.subtotal .amounts .row.t{border-bottom:none;border-top:2px solid #0f172a;font-weight:800;font-size:14px;padding-top:6px;margin-top:2px;letter-spacing:-.01em}
+.subtotal .amounts .row .k{color:#64748b}
+
+/* Signature block */
+.signoff{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px;padding-top:18px;border-top:1px solid #e5e7eb}
+.sig-box{border:1px dashed #cbd5e1;padding:12px;border-radius:3px;background:#fafbfc}
+.sig-l{font-size:9px;font-weight:800;color:#64748b;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.sig-line{height:32px;border-bottom:1px solid #475569;margin-bottom:6px;position:relative}
+.sig-name{font-size:11px;color:#0f172a;font-weight:600}
+.sig-date{font-size:10px;color:#64748b;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* Footnote */
+.foot{position:absolute;bottom:24px;left:56px;right:56px;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:6px}
+.foot .l{font-weight:600}
+.foot strong{color:#475569}
+
+/* Notes column */
+.notes-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.note-card{border:1px solid #e5e7eb;border-left:3px solid #1e40af;padding:10px 12px;background:#fafbfc;border-radius:0 2px 2px 0}
+.note-card .h{font-size:10px;font-weight:800;color:#1e40af;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px}
+.note-card ul{padding-left:16px}
+.note-card li{font-size:10px;color:#475569;line-height:1.55;margin-bottom:2px}
+
+/* Schedule (Gantt-ish) */
+.schedule{margin-top:6px;border:1px solid #e5e7eb;border-radius:2px;overflow:hidden;font-size:10px}
+.schedule .head{display:grid;grid-template-columns:140px repeat(14,1fr);background:#f8fafc;border-bottom:1px solid #e5e7eb}
+.schedule .head > div{padding:6px 8px;font-size:9px;font-weight:700;color:#64748b;letter-spacing:.04em;text-align:center;border-right:1px solid #f1f5f9}
+.schedule .head > div:first-child{text-align:left;color:#0f172a;text-transform:uppercase}
+.schedule .row{display:grid;grid-template-columns:140px repeat(14,1fr);border-bottom:1px solid #f1f5f9;position:relative}
+.schedule .row:last-child{border-bottom:none}
+.schedule .row > .lbl{padding:7px 8px;font-weight:600;font-size:10px;border-right:1px solid #f1f5f9}
+.schedule .row > .grid{grid-column:2/-1;display:grid;grid-template-columns:repeat(14,1fr);position:relative;height:28px}
+.schedule .row > .grid > div{border-right:1px solid #f8fafc}
+.bar{position:absolute;top:7px;height:14px;border-radius:2px;background:#1e40af;display:flex;align-items:center;padding:0 6px;color:#fff;font-size:8.5px;font-weight:700;letter-spacing:.02em;white-space:nowrap;overflow:hidden}
+.bar.warm{background:#0d9488}
+.bar.amber{background:#d97706}
+.bar.violet{background:#7c3aed}
+.bar.muted{background:#475569}
+
+@media print{
+  body{background:#fff}
+  .toolbar,.thumbs{display:none}
+  .viewer{display:block}
+  .viewer-body{display:block}
+  .pages{padding:0;gap:0}
+  .page{box-shadow:none;page-break-after:always;width:auto;padding:48px 56px}
+}
+</style>
+</head>
+<body>
+<div class="viewer">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button title="뒤로">← 견적 목록</button>
+    <div class="sep"></div>
+    <div>
+      <div class="title">견적서_동해수산_Q-2026-0511-014.pdf</div>
+    </div>
+    <div class="meta">· 4페이지 · 312 KB · 최종 수정 5월 11일 13:42</div>
+    <div style="flex:1"></div>
+    <div class="zoom">
+      <button>−</button>
+      <span class="pct">100%</span>
+      <button>+</button>
+    </div>
+    <div class="sep"></div>
+    <button>⤓ 다운로드</button>
+    <button>✉ 이메일 발송</button>
+    <button class="primary">서명 요청 보내기</button>
+  </div>
+
+  <div class="viewer-body">
+    <!-- Page thumbnails -->
+    <div class="thumbs">
+      <h3>페이지</h3>
+      <div class="thumb active" style="margin-bottom:24px">
+        <div class="thumb-content">
+          <div class="thumb-head"><span class="t">견적서</span><span style="font-size:4.5px">Q-2026-0511-014</span></div>
+          <div style="display:flex;gap:2px;margin:2px 0"><div style="flex:1"><div class="thumb-line dark w70"></div><div class="thumb-line w50"></div></div><div style="flex:1"><div class="thumb-line dark w70"></div><div class="thumb-line w50"></div></div></div>
+          <div style="background:#0f172a;height:8px;margin:3px 0;border-radius:1px"></div>
+          <div class="thumb-row"><div></div><div></div><div></div><div></div></div>
+          <div class="thumb-table"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        </div>
+        <div class="thumb-num">1 / 4</div>
+      </div>
+      <div class="thumb" style="margin-bottom:24px">
+        <div class="thumb-content">
+          <div class="thumb-head"><span class="t">자재 명세</span></div>
+          <div class="thumb-table" style="margin-top:5px"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        </div>
+        <div class="thumb-num">2 / 4</div>
+      </div>
+      <div class="thumb" style="margin-bottom:24px">
+        <div class="thumb-content">
+          <div class="thumb-head"><span class="t">공정 일정</span></div>
+          <div style="background:#f1f5f9;height:30px;margin-top:5px;border-radius:1px;position:relative">
+            <div style="position:absolute;top:4px;left:5%;width:28%;height:3px;background:#1e40af;border-radius:.5px"></div>
+            <div style="position:absolute;top:9px;left:25%;width:35%;height:3px;background:#0d9488;border-radius:.5px"></div>
+            <div style="position:absolute;top:14px;left:48%;width:30%;height:3px;background:#d97706;border-radius:.5px"></div>
+            <div style="position:absolute;top:19px;left:70%;width:20%;height:3px;background:#7c3aed;border-radius:.5px"></div>
+          </div>
+        </div>
+        <div class="thumb-num">3 / 4</div>
+      </div>
+      <div class="thumb">
+        <div class="thumb-content">
+          <div class="thumb-head"><span class="t">약관 · 서명</span></div>
+          <div class="thumb-line w90"></div><div class="thumb-line w70"></div><div class="thumb-line w50"></div>
+          <div style="display:flex;gap:3px;margin-top:8px"><div style="flex:1;height:14px;border:.5px dashed #cbd5e1"></div><div style="flex:1;height:14px;border:.5px dashed #cbd5e1"></div></div>
+        </div>
+        <div class="thumb-num">4 / 4</div>
+      </div>
+    </div>
+
+    <!-- Pages -->
+    <div class="pages">
+
+      <!-- PAGE 1 — Cover + Summary -->
+      <div class="page">
+        <div class="doc-header">
+          <div>
+            <div class="doc-title">견 적 서</div>
+            <div class="doc-subtitle">QUOTATION · COLD STORAGE INSTALLATION</div>
+          </div>
+          <div class="doc-no">
+            <div class="l">문서번호</div>
+            <div class="v">Q-2026-0511-014</div>
+            <div class="d">발행일 2026.05.11<br>유효기간 발행일로부터 30일</div>
+          </div>
+        </div>
+
+        <div class="parties">
+          <div class="party">
+            <div class="party-label">공급자 SUPPLIER</div>
+            <div class="party-name">한일냉동설비</div>
+            <div class="party-meta">
+              사업자등록 <strong>211-86-12345</strong><br>
+              대표 <strong>박상현</strong> · 담당 <strong>김재훈 차장</strong><br>
+              경기 성남시 분당구 판교로 123<br>
+              T. 031-721-4500 · M. 010-2244-7788<br>
+              kim@hanil-coolers.co.kr
+            </div>
+            <div class="party-stamp">한일냉동<br>설비(주)</div>
+          </div>
+          <div class="party">
+            <div class="party-label">수요자 CLIENT</div>
+            <div class="party-name">동해수산</div>
+            <div class="party-meta">
+              사업자등록 <strong>314-25-67890</strong><br>
+              대표 <strong>이영희</strong><br>
+              강원 강릉시 해안로 456<br>
+              T. 033-642-1100<br>
+              현장 도착 예정 <strong>2026.06.15</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="total-panel">
+          <div>
+            <div class="l">견적 총액 (부가세 포함)</div>
+            <div class="sub">냉동 1호기 3.6평 · 자재·시공·1년 무상 A/S 포함</div>
+          </div>
+          <div class="v">28,540,000<span class="won">원</span></div>
+        </div>
+
+        <div class="sec">
+          <div class="num">1</div>
+          <div class="t">설비 사양</div>
+          <div class="ext"></div>
+          <div class="meta">SPECIFICATION</div>
+        </div>
+
+        <div class="specs">
+          <div class="spec"><div class="l">사용 용도</div><div class="v">냉동<span class="u">−25℃</span></div></div>
+          <div class="spec"><div class="l">내부 치수</div><div class="v">3.0×4.0×2.4<span class="u">m</span></div></div>
+          <div class="spec"><div class="l">유효 면적</div><div class="v">3.63<span class="u">평</span></div></div>
+          <div class="spec"><div class="l">판넬 두께</div><div class="v">150<span class="u">T</span></div></div>
+          <div class="spec"><div class="l">유닛쿨러</div><div class="v">3<span class="u">HP</span></div></div>
+          <div class="spec"><div class="l">냉매</div><div class="v">R-404A</div></div>
+          <div class="spec"><div class="l">전원</div><div class="v">380<span class="u">V 3상</span></div></div>
+          <div class="spec"><div class="l">예상 공기</div><div class="v">14<span class="u">일</span></div></div>
+        </div>
+
+        <div class="sec">
+          <div class="num">2</div>
+          <div class="t">평면 도면</div>
+          <div class="ext"></div>
+          <div class="meta">FLOOR PLAN · 1:50</div>
+        </div>
+
+        <div class="dwg">
+          <div class="dwg-canvas">
+            <div class="dwg-label">PLAN VIEW</div>
+            <div class="dwg-scale">SCALE 1:50</div>
+            <!-- inline SVG drawing of floor plan -->
+            <svg viewBox="0 0 460 220" style="position:absolute;inset:18px 14px 24px 18px;width:calc(100% - 32px);height:calc(100% - 42px)">
+              <!-- outer wall -->
+              <rect x="40" y="30" width="380" height="160" fill="none" stroke="#0f172a" stroke-width="2.5"/>
+              <!-- inner wall offset (panel thickness 150mm = 3 units) -->
+              <rect x="46" y="36" width="368" height="148" fill="none" stroke="#0f172a" stroke-width=".8" stroke-dasharray="3 2"/>
+              <!-- door opening -->
+              <rect x="200" y="186" width="60" height="6" fill="#fff" stroke="#0f172a" stroke-width="2.5"/>
+              <path d="M 200 192 A 60 60 0 0 1 260 192" fill="none" stroke="#0f172a" stroke-width=".7"/>
+              <!-- unit cooler -->
+              <rect x="320" y="42" width="80" height="22" fill="#dbeafe" stroke="#1e40af" stroke-width=".8"/>
+              <text x="360" y="56" text-anchor="middle" font-size="9" fill="#1e40af" font-weight="700">U/C 3HP</text>
+              <!-- drain -->
+              <circle cx="80" cy="170" r="6" fill="none" stroke="#0f172a" stroke-width="1"/>
+              <path d="M76 166 L84 174 M84 166 L76 174" stroke="#0f172a" stroke-width=".8"/>
+              <!-- dimensions -->
+              <g font-size="9" fill="#475569" font-family="JetBrains Mono, monospace">
+                <line x1="40" y1="18" x2="420" y2="18" stroke="#475569" stroke-width=".5"/>
+                <line x1="40" y1="14" x2="40" y2="22" stroke="#475569" stroke-width=".5"/>
+                <line x1="420" y1="14" x2="420" y2="22" stroke="#475569" stroke-width=".5"/>
+                <text x="230" y="13" text-anchor="middle" font-weight="700">4,000</text>
+
+                <line x1="430" y1="30" x2="430" y2="190" stroke="#475569" stroke-width=".5"/>
+                <line x1="426" y1="30" x2="434" y2="30" stroke="#475569" stroke-width=".5"/>
+                <line x1="426" y1="190" x2="434" y2="190" stroke="#475569" stroke-width=".5"/>
+                <text x="438" y="113" font-weight="700">3,000</text>
+
+                <text x="230" y="208" text-anchor="middle" fill="#1e40af" font-weight="700">SWING DOOR W600</text>
+                <text x="82" y="186" text-anchor="middle" font-size="7.5">DRAIN Ø50</text>
+              </g>
+              <!-- North arrow -->
+              <g transform="translate(415,205)">
+                <circle r="9" fill="none" stroke="#0f172a" stroke-width=".5"/>
+                <path d="M 0 -7 L 3 4 L 0 1 L -3 4 Z" fill="#0f172a"/>
+                <text y="13" font-size="7" text-anchor="middle" fill="#475569" font-weight="700">N</text>
+              </g>
+            </svg>
+          </div>
+          <div class="dwg-info">
+            <div class="row"><span class="k">도면 ID</span><span class="v">DWG-014-P01</span></div>
+            <div class="row"><span class="k">개정</span><span class="v">Rev. C · 05.10</span></div>
+            <div class="row"><span class="k">작성</span><span class="v">김재훈</span></div>
+            <div class="row"><span class="k">단위</span><span class="v">mm</span></div>
+            <div class="row"><span class="k">외경</span><span class="v">3,300 × 4,300</span></div>
+            <div class="row"><span class="k">바닥 마감</span><span class="v">체크플레이트</span></div>
+            <div class="row"><span class="k">출입 도어</span><span class="v">스윙 W600·H1,800</span></div>
+            <div class="row"><span class="k">조명</span><span class="v">LED 30W × 2</span></div>
+          </div>
+        </div>
+
+        <div class="page-num">Page 1 of 4</div>
+        <div class="foot">
+          <div class="l">한일냉동설비 · Q-2026-0511-014</div>
+          <div><strong>CONFIDENTIAL</strong> · 견적 유효기간 30일</div>
+        </div>
+      </div>
+
+      <!-- PAGE 2 — BOM table -->
+      <div class="page">
+        <div class="doc-header" style="padding-bottom:10px;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.05em">Q-2026-0511-014 · 동해수산 · 냉동 1호기</div>
+            <div style="font-size:20px;font-weight:900;letter-spacing:-.02em;margin-top:2px">자재 및 시공 명세</div>
+          </div>
+          <div class="doc-no">
+            <div class="l">페이지</div>
+            <div class="v" style="font-size:14px">02 / 04</div>
+          </div>
+        </div>
+
+        <table class="items">
+          <thead>
+            <tr>
+              <th class="c">NO</th>
+              <th style="width:36%">품목 · 사양</th>
+              <th style="width:14%">규격</th>
+              <th class="r">수량</th>
+              <th class="r">단가</th>
+              <th class="r" style="width:12%">금액 (원)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="cat"><td colspan="6">A. 단열 판넬 PANEL</td></tr>
+            <tr><td class="c">1</td><td><div class="it-name">우레탄 판넬 (벽체)</div><div class="it-spec">EPS-PIR · 양면 컬러강판 0.5T</div></td><td>150T</td><td class="r">22.4 ㎡</td><td class="r">96,000</td><td class="r">2,150,400</td></tr>
+            <tr><td class="c">2</td><td><div class="it-name">우레탄 판넬 (천정)</div><div class="it-spec">현장 컷팅 · 모서리 보강</div></td><td>150T</td><td class="r">12.0 ㎡</td><td class="r">102,000</td><td class="r">1,224,000</td></tr>
+            <tr><td class="c">3</td><td><div class="it-name">우레탄 판넬 (바닥)</div><div class="it-spec">고밀도 60kg/㎥</div></td><td>150T</td><td class="r">12.0 ㎡</td><td class="r">118,000</td><td class="r">1,416,000</td></tr>
+            <tr class="sub"><td colspan="5" style="text-align:right;font-size:9.5px;color:#64748b">소계 A</td><td class="r">4,790,400</td></tr>
+
+            <tr class="cat"><td colspan="6">B. 도어 및 부속 DOOR</td></tr>
+            <tr><td class="c">4</td><td><div class="it-name">냉동용 스윙도어</div><div class="it-spec">힌지 좌·150T · 자동 클로저</div></td><td>W600×H1800</td><td class="r">1 EA</td><td class="r">1,650,000</td><td class="r">1,650,000</td></tr>
+            <tr><td class="c">5</td><td><div class="it-name">도어 히터선</div><div class="it-spec">결로 방지 · 220V</div></td><td>5m</td><td class="r">1 SET</td><td class="r">88,000</td><td class="r">88,000</td></tr>
+            <tr><td class="c">6</td><td><div class="it-name">압력 평형 밸브</div><div class="it-spec">PR-50</div></td><td>1ea</td><td class="r">1 EA</td><td class="r">42,000</td><td class="r">42,000</td></tr>
+            <tr class="sub"><td colspan="5" style="text-align:right;font-size:9.5px;color:#64748b">소계 B</td><td class="r">1,780,000</td></tr>
+
+            <tr class="cat"><td colspan="6">C. 냉동기 REFRIGERATION UNIT</td></tr>
+            <tr><td class="c">7</td><td><div class="it-name">응축 유닛 (수냉식)</div><div class="it-spec">대한 KMC-3R · 3HP · R-404A</div></td><td>3HP</td><td class="r">1 SET</td><td class="r">5,820,000</td><td class="r">5,820,000</td></tr>
+            <tr><td class="c">8</td><td><div class="it-name">유닛쿨러 (천정형)</div><div class="it-spec">DCO-30 · 전기제상 · 팬 ø355×2</div></td><td>DCO-30</td><td class="r">1 EA</td><td class="r">2,140,000</td><td class="r">2,140,000</td></tr>
+            <tr><td class="c">9</td><td><div class="it-name">팽창변 · 전자변 SET</div><div class="it-spec">TXV · 솔레노이드 · 사이트글라스</div></td><td>-</td><td class="r">1 SET</td><td class="r">385,000</td><td class="r">385,000</td></tr>
+            <tr><td class="c">10</td><td><div class="it-name">컨트롤 패널</div><div class="it-spec">CAREL IR33 · 알람·기록</div></td><td>-</td><td class="r">1 EA</td><td class="r">420,000</td><td class="r">420,000</td></tr>
+            <tr class="sub"><td colspan="5" style="text-align:right;font-size:9.5px;color:#64748b">소계 C</td><td class="r">8,765,000</td></tr>
+
+            <tr class="cat"><td colspan="6">D. 부자재 · 마감 ACCESSORY</td></tr>
+            <tr><td class="c">11</td><td><div class="it-name">기초 조립대 (아연각)</div><div class="it-spec">각파이프 50×50×2.3T</div></td><td>-</td><td class="r">14 m</td><td class="r">28,500</td><td class="r">399,000</td></tr>
+            <tr><td class="c">12</td><td><div class="it-name">체크 강판 (바닥 마감)</div><div class="it-spec">2.3T · 미끄럼방지</div></td><td>-</td><td class="r">12.5 ㎡</td><td class="r">52,000</td><td class="r">650,000</td></tr>
+            <tr><td class="c">13</td><td><div class="it-name">코너 몰딩 · 실링</div><div class="it-spec">알루미늄 · 실리콘</div></td><td>-</td><td class="r">1 LOT</td><td class="r">340,000</td><td class="r">340,000</td></tr>
+            <tr><td class="c">14</td><td><div class="it-name">바닥 배수구</div><div class="it-spec">Ø50 · 트랩</div></td><td>-</td><td class="r">1 EA</td><td class="r">68,000</td><td class="r">68,000</td></tr>
+            <tr><td class="c">15</td><td><div class="it-name">LED 방습 조명</div><div class="it-spec">30W · 6500K · IP65</div></td><td>-</td><td class="r">2 EA</td><td class="r">95,000</td><td class="r">190,000</td></tr>
+            <tr class="sub"><td colspan="5" style="text-align:right;font-size:9.5px;color:#64748b">소계 D</td><td class="r">1,647,000</td></tr>
+
+            <tr class="cat"><td colspan="6">E. 시공 · 운임 LABOR</td></tr>
+            <tr><td class="c">16</td><td><div class="it-name">설치 · 조립</div><div class="it-spec">기능공 3인 × 3일</div></td><td>-</td><td class="r">9 MD</td><td class="r">320,000</td><td class="r">2,880,000</td></tr>
+            <tr><td class="c">17</td><td><div class="it-name">냉동 배관 · 진공·충전</div><div class="it-spec">동관 5/8·3/8 · 보온</div></td><td>-</td><td class="r">1 LOT</td><td class="r">1,150,000</td><td class="r">1,150,000</td></tr>
+            <tr><td class="c">18</td><td><div class="it-name">시운전 · 시험</div><div class="it-spec">누설·풀다운·캘리브레이션</div></td><td>-</td><td class="r">1 LOT</td><td class="r">380,000</td><td class="r">380,000</td></tr>
+            <tr><td class="c">19</td><td><div class="it-name">상하차 · 운송</div><div class="it-spec">강릉 현장 · 5톤</div></td><td>-</td><td class="r">1 LOT</td><td class="r">560,000</td><td class="r">560,000</td></tr>
+            <tr class="sub"><td colspan="5" style="text-align:right;font-size:9.5px;color:#64748b">소계 E</td><td class="r">4,970,000</td></tr>
+          </tbody>
+        </table>
+
+        <div class="subtotal">
+          <div class="terms">
+            <strong>비고</strong>
+            · 모든 자재는 KS 인증 정품을 사용합니다.<br>
+            · 현장 여건상 추가 자재 발생 시 사전 협의 후 청구합니다.<br>
+            · 단가는 발행일 기준이며, 환율·원자재 변동 시 재산정될 수 있습니다.<br>
+            · 부가세 별도 청구 항목 없음 (총액에 포함).
+          </div>
+          <div class="amounts">
+            <div class="row"><span class="k">자재 합계</span><span>16,982,400</span></div>
+            <div class="row"><span class="k">시공 합계</span><span>4,970,000</span></div>
+            <div class="row"><span class="k">현장 할인 (−3%)</span><span style="color:#dc2626">−655,500</span></div>
+            <div class="row"><span class="k">공급가액</span><span>21,296,900</span></div>
+            <div class="row"><span class="k">부가세 10%</span><span>2,129,690</span></div>
+            <div class="row t"><span>합계 (원)</span><span>28,540,000</span></div>
+          </div>
+        </div>
+
+        <div class="page-num">Page 2 of 4</div>
+        <div class="foot">
+          <div class="l">한일냉동설비 · Q-2026-0511-014</div>
+          <div><strong>BOM</strong> · 19개 품목 · 5개 카테고리</div>
+        </div>
+      </div>
+
+      <!-- PAGE 3 — Schedule + payment -->
+      <div class="page">
+        <div class="doc-header" style="padding-bottom:10px;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.05em">Q-2026-0511-014 · 공정 일정 및 결제 조건</div>
+            <div style="font-size:20px;font-weight:900;letter-spacing:-.02em;margin-top:2px">시공 일정 · 결제</div>
+          </div>
+          <div class="doc-no">
+            <div class="l">페이지</div>
+            <div class="v" style="font-size:14px">03 / 04</div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="num">3</div>
+          <div class="t">시공 공정표 (14일)</div>
+          <div class="ext"></div>
+          <div class="meta">SCHEDULE · 06.15 → 06.28</div>
+        </div>
+
+        <div class="schedule">
+          <div class="head">
+            <div>공정 / 일자</div>
+            <div>15</div><div>16</div><div>17</div><div>18</div><div>19</div><div>20</div><div>21</div>
+            <div>22</div><div>23</div><div>24</div><div>25</div><div>26</div><div>27</div><div>28</div>
+          </div>
+          <div class="row">
+            <div class="lbl">자재 입고 · 현장 정리</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar muted" style="left:0%;width:14.2%">입고</div>
+              <div class="bar muted" style="left:14.2%;width:7.1%">정리</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">기초 · 베이스 조립</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar amber" style="left:14.2%;width:14.2%">베이스</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">판넬 설치</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar" style="left:21.4%;width:28.5%">벽체 · 천정 · 바닥</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">도어 · 마감</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar warm" style="left:42.8%;width:14.2%">도어 · 코너</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">냉동기 · 배관</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar violet" style="left:50%;width:28.5%">응축유닛 · 동관 · 진공</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">전기 · 컨트롤</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar amber" style="left:64.2%;width:14.2%">패널 · 배선</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lbl">시운전 · 인계</div>
+            <div class="grid">
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+              <div class="bar warm" style="left:78.5%;width:21.4%">풀다운 · 검수</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec" style="margin-top:22px">
+          <div class="num">4</div>
+          <div class="t">결제 조건</div>
+          <div class="ext"></div>
+          <div class="meta">PAYMENT TERMS</div>
+        </div>
+
+        <table class="items">
+          <thead>
+            <tr>
+              <th style="width:8%">차수</th>
+              <th style="width:25%">시점</th>
+              <th>조건</th>
+              <th class="r" style="width:12%">비율</th>
+              <th class="r" style="width:18%">금액 (원)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="c">1차</td><td>계약 시</td><td>계약금 · 자재 발주 착수</td><td class="r">30%</td><td class="r">8,562,000</td></tr>
+            <tr><td class="c">2차</td><td>자재 입고일</td><td>중도금 · 현장 확인 후</td><td class="r">40%</td><td class="r">11,416,000</td></tr>
+            <tr><td class="c">3차</td><td>시운전 완료일</td><td>잔금 · 검수 인계 후 7일 이내</td><td class="r">30%</td><td class="r">8,562,000</td></tr>
+            <tr class="sub"><td colspan="3" style="text-align:right">합계</td><td class="r">100%</td><td class="r">28,540,000</td></tr>
+          </tbody>
+        </table>
+
+        <div class="notes-grid" style="margin-top:18px">
+          <div class="note-card">
+            <div class="h">보증 · A/S</div>
+            <ul>
+              <li>인계일로부터 1년 무상 A/S (방문 출장비 포함)</li>
+              <li>응축 유닛 · 컨트롤러 제조사 보증 2년</li>
+              <li>사용자 과실로 인한 고장은 유상 처리</li>
+              <li>정기 점검 1회 무상 (인계 후 6개월 시점)</li>
+            </ul>
+          </div>
+          <div class="note-card">
+            <div class="h">현장 요구사항</div>
+            <ul>
+              <li>전원: 380V 3상 4선식 30A 차단기 사전 인입</li>
+              <li>배수 라인 Ø50 · 동결 방지 처리 (고객 측)</li>
+              <li>현장 진입로 5톤 트럭 통행 가능 확인</li>
+              <li>설치 전 바닥 수평 ±5mm 이내</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="page-num">Page 3 of 4</div>
+        <div class="foot">
+          <div class="l">한일냉동설비 · Q-2026-0511-014</div>
+          <div><strong>SCHEDULE</strong> · 14일 공기 · 7개 공정</div>
+        </div>
+      </div>
+
+      <!-- PAGE 4 — Terms + Signature -->
+      <div class="page">
+        <div class="doc-header" style="padding-bottom:10px;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.05em">Q-2026-0511-014 · 약관 및 서명</div>
+            <div style="font-size:20px;font-weight:900;letter-spacing:-.02em;margin-top:2px">계약 약관 · 서명</div>
+          </div>
+          <div class="doc-no">
+            <div class="l">페이지</div>
+            <div class="v" style="font-size:14px">04 / 04</div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="num">5</div>
+          <div class="t">일반 약관</div>
+          <div class="ext"></div>
+          <div class="meta">TERMS AND CONDITIONS</div>
+        </div>
+
+        <div style="font-size:10.5px;color:#334155;line-height:1.7;column-count:2;column-gap:22px;column-rule:1px solid #f1f5f9">
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제1조 (견적 유효기간)</strong> 본 견적서는 발행일로부터 30일간 유효하며, 이후 자재 및 환율 변동에 따라 재산정될 수 있습니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제2조 (시공 범위)</strong> 본 견적은 명시된 자재 및 시공 항목에 한하며, 현장 여건으로 발생하는 토목·전원 인입·배수 공사는 별도 견적으로 합니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제3조 (착공 조건)</strong> 1차 계약금 입금 확인 후 자재 발주가 진행되며, 현장 도착일은 자재 입고 일정에 따라 변동될 수 있습니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제4조 (검수 및 인계)</strong> 시운전 후 풀다운 온도 및 전류치를 측정하여 인계서에 기록하며, 고객 서명으로 인계가 완료됩니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제5조 (보증)</strong> 인계일로부터 1년간 무상 A/S를 제공하며, 천재지변·사용자 과실·정전·전압 이상 등으로 인한 고장은 보증 범위에서 제외됩니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제6조 (지체 보상)</strong> 공급자 귀책 사유로 인계일이 지연될 경우 1일당 계약금액의 0.1%를 보상하며, 누적 최대 5%로 합니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제7조 (소유권)</strong> 자재의 소유권은 잔금 완납 시점에 수요자에게 이전됩니다.</p>
+          <p style="break-inside:avoid;margin-bottom:8px"><strong style="color:#0f172a">제8조 (분쟁 해결)</strong> 본 계약과 관련한 분쟁은 상호 협의로 해결하되, 협의가 어려운 경우 공급자 소재지 관할 법원에서 해결합니다.</p>
+        </div>
+
+        <div class="sec" style="margin-top:22px">
+          <div class="num">6</div>
+          <div class="t">확인 및 서명</div>
+          <div class="ext"></div>
+          <div class="meta">SIGNATURES</div>
+        </div>
+
+        <div style="font-size:10.5px;color:#475569;line-height:1.7;margin-bottom:14px">
+          위 견적 내용을 확인하였으며, 명시된 조건에 따라 시공 계약을 체결할 것에 동의합니다.<br>
+          본 문서는 양자 서명 후 정식 계약서로 효력을 갖습니다.
+        </div>
+
+        <div class="signoff">
+          <div class="sig-box">
+            <div class="sig-l">공급자 SUPPLIER</div>
+            <div style="font-size:13px;font-weight:800;margin-bottom:10px">한일냉동설비 (주)</div>
+            <div style="font-size:10.5px;color:#475569;margin-bottom:14px">대표이사 박상현 · 211-86-12345</div>
+            <div class="sig-line">
+              <span style="position:absolute;bottom:4px;left:6px;font-family:'Pretendard',cursive;font-style:italic;font-size:18px;font-weight:600;color:#1e40af;transform:rotate(-3deg);transform-origin:left">박상현</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div class="sig-name">박 상 현 (인)</div>
+                <div class="sig-date">서명일 2026.05.11</div>
+              </div>
+              <div style="width:48px;height:48px;border:2px solid #dc2626;border-radius:50%;color:#dc2626;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1;transform:rotate(-5deg)">한일<br>냉동</div>
+            </div>
+          </div>
+          <div class="sig-box" style="background:#fff;border-style:dashed">
+            <div class="sig-l">수요자 CLIENT</div>
+            <div style="font-size:13px;font-weight:800;margin-bottom:10px">동해수산</div>
+            <div style="font-size:10.5px;color:#475569;margin-bottom:14px">대표 이영희 · 314-25-67890</div>
+            <div class="sig-line"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div class="sig-name" style="color:#94a3b8">서명 대기</div>
+                <div class="sig-date">서명일 ________________</div>
+              </div>
+              <div style="width:48px;height:48px;border:1.5px dashed #cbd5e1;border-radius:50%;color:#94a3b8;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1">인감<br>위치</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px;padding:10px 14px;background:#eff4ff;border:1px solid #c7d6f5;border-radius:3px;display:flex;align-items:center;gap:10px;font-size:10.5px;color:#1e40af">
+          <div style="width:24px;height:24px;border-radius:50%;background:#1e40af;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">i</div>
+          <div style="line-height:1.5">
+            <strong>전자 서명 안내</strong> · 본 견적서는 우측 상단 [서명 요청 보내기] 버튼을 통해 고객님 이메일 / SMS로 전자 서명 링크가 발송됩니다. 서명 완료 시 자동으로 본 시스템에 계약 기록이 생성되며 PDF 사본이 양자에게 전송됩니다.
+          </div>
+        </div>
+
+        <div class="page-num">Page 4 of 4</div>
+        <div class="foot">
+          <div class="l">한일냉동설비 · Q-2026-0511-014</div>
+          <div><strong>END OF DOCUMENT</strong></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// Thumbnail click → scroll to page
+document.querySelectorAll('.thumb').forEach((t,i)=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.thumb').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.page')[i].scrollIntoView({block:'start'});
+  });
+});
+// Active thumb on scroll
+const pages = document.querySelectorAll('.page');
+const thumbs = document.querySelectorAll('.thumb');
+document.querySelector('.pages').addEventListener('scroll',()=>{
+  const top = document.querySelector('.pages').scrollTop;
+  let idx = 0;
+  pages.forEach((p,i)=>{ if(p.offsetTop - 40 <= top) idx = i; });
+  thumbs.forEach((t,i)=>t.classList.toggle('active', i===idx));
+});
+</script>
+</body>
+</html>

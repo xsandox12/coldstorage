@@ -1,0 +1,41 @@
+{
+  "essential_items": [
+    {
+      "id": "cooler_in",
+      "name": "내부 유닛 쿨러",
+      "type": "rect",
+      "w": 1200,
+      "h": 500,
+      "color": "#3b82f6",
+      "category": "cooling"
+    },
+    {
+      "id": "cooler_out",
+      "name": "외부 콘덴싱 유닛",
+      "type": "rect",
+      "w": 900,
+      "h": 600,
+      "color": "#ef4444",
+      "category": "cooling"
+    },
+    {
+      "id": "ctrl_box",
+      "name": "컨트롤 박스",
+      "type": "rect",
+      "w": 300,
+      "h": 400,
+      "color": "#10b981",
+      "category": "electrical"
+    },
+    {
+      "id": "shelf",
+      "name": "기본 선반 (1단)",
+      "type": "rect",
+      "w": 1000,
+      "h": 450,
+      "color": "#f59e0b",
+      "category": "storage"
+    }
+  ],
+  "user_templates": []
+}

@@ -1,0 +1,12 @@
+{
+  "name": "coldstorage",
+  "version": "1.0.0",
+  "description": "ColdStorage Master - 영업/견적/재고 관리 SaaS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

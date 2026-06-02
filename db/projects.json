@@ -1,0 +1,44 @@
+[
+  {
+    "id": "PROJ-2026-001",
+    "customer_id": "CUST-0001",
+    "project_name": "오산 물류센터 유닛 쿨러 교체",
+    "status": "COMPLETED",
+    "specs": {
+      "width": 3000,
+      "length": 3000,
+      "height": 2400
+    },
+    "amount": 8500000,
+    "start_date": "2025-10-25",
+    "end_date": "2025-11-02"
+  },
+  {
+    "id": "PROJ-2026-002",
+    "customer_id": "CUST-0001",
+    "project_name": "평택 농수산물 저온창고 (신축)",
+    "status": "CONSTRUCTION",
+    "specs": {
+      "width": 5000,
+      "length": 4000,
+      "height": 2400
+    },
+    "amount": 12500000,
+    "start_date": "2026-02-05",
+    "end_date": "2026-02-28"
+  },
+  {
+    "id": "PROJ-2026-003",
+    "customer_id": "CUST-0003",
+    "project_name": "신선농장 냉동실 증설",
+    "status": "PLANNING",
+    "specs": {
+      "width": 6000,
+      "length": 6000,
+      "height": 3000
+    },
+    "amount": 32000000,
+    "start_date": "2026-03-10",
+    "end_date": null
+  }
+]

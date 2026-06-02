@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quotation System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style id="erp-skin">
+      :root{--bg:#f4f5f7;--line:#e5e7eb;--line-2:#eef0f3;--ink:#0f172a;--mute:#64748b;--brand:#1e40af;--brand-soft:#eff4ff}
+      html,body{font-family:'Pretendard',sans-serif!important;background:var(--bg)!important;color:var(--ink)!important;font-size:13px!important;line-height:1.4!important}
+      body{padding:14px 18px 28px!important}
+      .rounded-3xl,.rounded-2xl{border-radius:6px!important}
+      .rounded-xl{border-radius:5px!important}
+      .shadow-xl,.shadow-2xl,.shadow-lg{box-shadow:none!important}
+      .shadow-md,.shadow-sm{box-shadow:0 1px 2px rgba(15,23,42,.04)!important}
+      .border-slate-100,.border-slate-200{border-color:var(--line)!important}
+      .text-3xl{font-size:16px!important;font-weight:700!important;letter-spacing:-.01em!important}
+      .text-2xl{font-size:18px!important;font-weight:800!important}
+      .text-lg{font-size:13px!important;font-weight:700!important}
+      h2.font-black,h3.font-bold{letter-spacing:-.01em!important}
+      h2 + p,p.text-slate-500{font-size:11.5px!important;color:var(--mute)!important;margin-top:1px!important}
+      .grid.gap-6,.grid.gap-8{gap:10px!important}
+      .gap-4{gap:8px!important}.gap-3{gap:6px!important}.gap-5{gap:8px!important}
+      .space-y-6>*+*{margin-top:10px!important}.space-y-4>*+*{margin-top:6px!important}
+      .mb-8{margin-bottom:12px!important}.mb-6{margin-bottom:10px!important}
+      .p-6,.p-8{padding:12px 14px!important}.p-4{padding:8px!important}
+      .py-3{padding-top:7px!important;padding-bottom:7px!important}
+      .px-6,.px-8{padding-left:12px!important;padding-right:12px!important}
+      .py-5{padding-top:8px!important;padding-bottom:8px!important}
+      input,select,textarea{background:#fff!important;border:1px solid var(--line)!important;font-size:12.5px!important;font-weight:500!important;color:var(--ink)!important;height:30px!important;padding:6px 10px!important}
+      textarea{height:auto!important;min-height:50px!important}
+      input:focus,select:focus,textarea:focus{border-color:var(--brand)!important;box-shadow:0 0 0 3px rgba(30,64,175,.08)!important}
+      input::placeholder,textarea::placeholder{color:#94a3b8!important;font-weight:400!important}
+      .bg-slate-50,.bg-slate-100{background:#fff!important}
+      label{font-size:10.5px!important;font-weight:700!important;letter-spacing:.04em!important;color:var(--mute)!important;text-transform:uppercase!important;margin-bottom:3px!important}
+      .bg-blue-600{background:var(--brand)!important}
+      .bg-blue-700,.hover\:bg-blue-700:hover{background:#1e3a8a!important}
+      .bg-blue-50,.bg-blue-100{background:var(--brand-soft)!important}
+      .text-blue-600{color:var(--brand)!important}
+      button{font-size:12px!important;font-weight:600!important}
+      button.bg-blue-600,button.bg-white,button.bg-slate-100,button.bg-blue-50{padding:6px 12px!important;border-radius:5px!important;height:30px!important;display:inline-flex!important;align-items:center!important;line-height:1!important}
+      button .w-5,button .w-6{width:14px!important;height:14px!important}
+      table thead th{padding:7px 10px!important;font-size:10.5px!important;background:#f8fafc!important;color:#475569!important;text-transform:uppercase!important;font-weight:600!important;border-bottom:1px solid var(--line)!important;letter-spacing:.04em!important}
+      table tbody td{padding:7px 10px!important;border-bottom:1px solid var(--line-2)!important;font-size:12px!important}
+      table tbody tr:hover{background:#f8fafc!important}
+      #q-specs-container>div{border:1px solid var(--line)!important;border-radius:6px!important;padding:10px 12px!important;background:#fff!important;box-shadow:none!important}
+      .pb-20{padding-bottom:24px!important}
+      .p-3,.p-3\.5{padding:6px 10px!important}
+      .p-2\.5{padding:5px 8px!important}
+    </style>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@100;400;700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: transparent; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body class="p-0 m-0 overflow-x-hidden">
+
+    <div id="q-container" class="animate-in fade-in duration-300">
+        <!-- 리스트 뷰 -->
+        <div id="q-list-view">
+            <div class="flex items-center justify-between mb-8">
+                <div>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tight">Quotation Management</h2>
+                    <p class="text-slate-500 mt-1">인텔리전트 견적 시스템으로 빠르고 정확하게 견적을 산출하세요.</p>
+                </div>
+                <button onclick="showForm(null)" class="bg-blue-600 text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:bg-blue-700 transition shadow-xl shadow-blue-200 font-bold">
+                    <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                    새 견적서 작성
+                </button>
+            </div>
+
+            <!-- 요약 카드 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+                    <div class="bg-blue-50 p-4 rounded-2xl text-blue-600"><i data-lucide="file-text" class="w-8 h-8"></i></div>
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">전체 견적</p>
+                        <p class="text-2xl font-black text-slate-800">128건</p>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+                    <div class="bg-orange-50 p-4 rounded-2xl text-orange-600"><i data-lucide="clock" class="w-8 h-8"></i></div>
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">검토 중</p>
+                        <p class="text-2xl font-black text-slate-800">12건</p>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+                    <div class="bg-emerald-50 p-4 rounded-2xl text-emerald-600"><i data-lucide="check-circle" class="w-8 h-8"></i></div>
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">승인 완료</p>
+                        <p class="text-2xl font-black text-slate-800">84건</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 검색 및 필터 -->
+            <div class="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm mb-6 flex items-center gap-4">
+                <div class="relative flex-1">
+                    <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5"></i>
+                    <input type="text" id="q-search" placeholder="고객명, 프로젝트명, 품목 검색..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" oninput="renderList()">
+                </div>
+                <select id="q-filter-status" class="bg-slate-50 border-none rounded-2xl py-3 px-6 text-sm font-bold text-slate-600 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer" onchange="renderList()">
+                    <option value="ALL">모든 상태</option>
+                    <option value="DRAFT">작성 중</option>
+                    <option value="SENT">발송 완료</option>
+                    <option value="APPROVED">승인됨</option>
+                </select>
+            </div>
+
+            <!-- 견적 리스트 테이블 -->
+            <div class="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50/50 text-slate-400 font-black text-[10px] uppercase tracking-widest border-b">
+                        <tr>
+                            <th class="px-8 py-5">견적 정보</th>
+                            <th class="px-6 py-5">고객 / 프로젝트</th>
+                            <th class="px-6 py-5 text-right">금액</th>
+                            <th class="px-6 py-5">상태</th>
+                            <th class="px-8 py-5 text-center">액션</th>
+                        </tr>
+                    </thead>
+                    <tbody id="q-list-body" class="divide-y divide-slate-50"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 폼 뷰 (작성/수정) -->
+        <div id="q-form-view" class="hidden animate-in slide-in-from-bottom-4 duration-500 pb-20">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center gap-4">
+                    <button onclick="showList()" class="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-800 hover:shadow-md transition">
+                        <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                    </button>
+                    <div>
+                        <h2 id="q-form-title" class="text-3xl font-black text-slate-800 tracking-tight">새 견적서 작성</h2>
+                        <p class="text-slate-500">상세 정보를 입력하여 전문적인 견적서를 생성합니다.</p>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="save(false)" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 transition">임시 저장</button>
+                    <button onclick="save(true)" class="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition shadow-xl shadow-blue-200 flex items-center gap-2">
+                        <i data-lucide="check-circle" class="w-5 h-5"></i>
+                        견적 확정
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- 좌측 정보 -->
+                <div class="space-y-6">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                        <h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                            <i data-lucide="user" class="text-blue-600 w-5 h-5"></i> 거래처 정보
+                        </h3>
+                        <div class="space-y-4">
+                            <!-- 고객 검색 -->
+                            <div class="relative">
+                                <label class="block text-[10px] font-black text-slate-400 uppercase mb-1.5">고객 선택 (이름 또는 ID)</label>
+                                <div class="relative">
+                                    <input type="text" id="q-customer-search" placeholder="고객명 또는 사업자번호 입력..." class="w-full p-3.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 text-sm" oninput="filterCustomers(this.value)" onfocus="showCustomerDropdown()">
+                                    <i data-lucide="chevron-down" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none"></i>
+                                </div>
+                                <div id="q-customer-dropdown" class="absolute z-50 left-0 right-0 mt-2 bg-white border border-slate-100 shadow-2xl rounded-2xl max-h-60 overflow-y-auto hidden"></div>
+                            </div>
+
+                            <!-- 상세 정보 (Compact Grid) -->
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">거래처 연락처</label>
+                                    <input type="text" id="q-input-phone" placeholder="010-0000-0000" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">프로젝트명</label>
+                                    <input type="text" id="q-input-title" placeholder="현장 명칭" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">배송지 주소</label>
+                                <input type="text" id="q-input-addr" placeholder="주소를 입력하세요" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">견적일</label>
+                                    <input type="date" id="q-input-date-est" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">출고일 (예정)</label>
+                                    <input type="date" id="q-input-date-ship" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">비고 (내부 메모)</label>
+                                <textarea id="q-input-note-cust" rows="2" placeholder="고객 관련 특이사항" class="w-full p-2.5 bg-slate-50 border-none rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 저장고 제원 컨테이너 (동적 추가) -->
+                    <div id="q-specs-container" class="space-y-4"></div>
+                </div>
+
+                <!-- 우측 명세서 -->
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl min-h-[500px] flex flex-col">
+                        <div class="flex items-center justify-between mb-8">
+                            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <i data-lucide="list-checks" class="text-blue-600 w-5 h-5"></i> 품목 명세서
+                            </h3>
+                            <div class="flex gap-2">
+                                <button onclick="requestDrawingData()" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition flex items-center gap-2 shadow-lg shadow-blue-100">
+                                    <i data-lucide="ruler" class="w-4 h-4"></i> 도면 설계 불러오기
+                                </button>
+                                <button onclick="addItemRow()" class="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-200 transition flex items-center gap-1.5">
+                                    <i data-lucide="plus" class="w-4 h-4"></i> 행 추가
+                                </button>
+                                <button onclick="importFromInventory()" class="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 transition flex items-center gap-1.5 border border-blue-100">
+                                    <i data-lucide="database" class="w-4 h-4"></i> 자재 불러오기
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="flex-1 overflow-x-auto">
+                            <table class="w-full border-separate border-spacing-0">
+                                <thead>
+                                    <tr class="text-[10px] font-black text-slate-400 uppercase border-b border-slate-100">
+                                        <th class="pb-4 text-left pl-4 w-24">품목 코드</th>
+                                        <th class="pb-4 text-left w-48">품목명</th>
+                                        <th class="pb-4 text-left pl-6 w-32">규격</th> <!-- 품목명과 간격 확보 -->
+                                        <th class="pb-4 text-center w-16">수량</th>
+                                        <th class="pb-4 text-right w-28">단가</th>
+                                        <th class="pb-4 text-right w-32">공급가액</th>
+                                        <th class="pb-4 text-left pl-6">적요 (비고)</th>
+                                        <th class="pb-4 w-10"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="q-items-body" class="divide-y divide-slate-50"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-8 pt-8 border-t border-slate-100 space-y-4">
+                            <div class="flex justify-between items-center text-slate-500">
+                                <span class="text-sm font-bold uppercase tracking-widest">Supply Total</span>
+                                <span id="q-total-supply" class="text-xl font-black text-slate-800">₩ 0</span>
+                            </div>
+                            <div class="flex justify-between items-center p-6 bg-slate-900 rounded-3xl text-white shadow-xl">
+                                <span class="text-lg font-black uppercase tracking-widest">Grand Total</span>
+                                <span id="q-total-grand" class="text-3xl font-black italic">₩ 0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:9000' : '';
+        const apiUrl = (path) => `${API_BASE}${path}`;
+        const apiFetch = (path, options) => fetch(apiUrl(path), options);
+        let customers = [];
+        let inventory = [];
+        let qData = [];
+        let nextId = Date.now(); // 신규 견적 ID 생성용
+        let _editingId = null;  // 수정 중인 견적 ID (null이면 신규)
+
+        // 앱 초기화: API에서 데이터 로드
+        async function initApp() {
+            try {
+                const [custResp, invResp, quotResp] = await Promise.all([
+                    apiFetch('/api/customers'),
+                    apiFetch('/api/inventory'),
+                    apiFetch('/api/quotations')
+                ]);
+                customers = await custResp.json();
+                const invRaw = await invResp.json();
+                // inventory.json은 [{category, items:[...]}] 중첩 구조 → flat하게 변환
+                inventory = invRaw.flatMap(cat => cat.items.map(item => ({ ...item, category: cat.category, category_name: cat.category_name })));
+                qData = await quotResp.json();
+            } catch(e) {
+                console.error('데이터 로드 실패:', e);
+            }
+            renderList();
+            updateSummaryCards();
+        }
+
+        function renderList() {
+            const tbody = document.getElementById('q-list-body');
+            const search = document.getElementById('q-search').value.toLowerCase();
+            const status = document.getElementById('q-filter-status').value;
+
+            const filtered = qData.filter(q => {
+                const projectText = (q.items || q.project || '').toLowerCase();
+                const matchSearch = (q.customer || '').toLowerCase().includes(search) || projectText.includes(search) || (q.no || '').toLowerCase().includes(search);
+                const matchStatus = status === 'ALL' || q.status === status;
+                return matchSearch && matchStatus;
+            });
+
+            tbody.innerHTML = filtered.map(q => `
+                <tr class="hover:bg-slate-50/80 transition group cursor-pointer" onclick="showForm(${q.id})">
+                    <td class="px-8 py-5">
+                        <p class="text-[10px] font-black text-blue-600 mb-1">${q.no}</p>
+                        <p class="text-xs text-slate-400 font-mono">${q.date}</p>
+                    </td>
+                    <td class="px-6 py-5">
+                        <p class="font-black text-slate-800">${q.customer}</p>
+                        <p class="text-xs text-slate-500 mt-0.5">${q.items || q.project || ''}</p>
+                    </td>
+                    <td class="px-6 py-5 text-right font-black text-slate-700">₩ ${(q.total || q.amount || 0).toLocaleString()}</td>
+                    <td class="px-6 py-5">${getStatusBadge(q.status)}</td>
+                    <td class="px-8 py-5 text-center" onclick="event.stopPropagation()">
+                        <div class="flex justify-center gap-2">
+                            <button class="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-blue-600 hover:text-white transition shadow-sm" onclick="printQuotation(${q.id})"><i data-lucide="printer" class="w-4 h-4"></i></button>
+                            <button class="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-red-500 hover:text-white transition shadow-sm" onclick="deleteItem(${q.id})"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+            updateSummaryCards();
+        }
+
+        function updateSummaryCards() {
+            const cards = document.querySelectorAll('.grid.grid-cols-1.md\\:grid-cols-3 .bg-white');
+            if (cards.length >= 3) {
+                const totalEl = cards[0].querySelector('p:last-child');
+                const pendingEl = cards[1].querySelector('p:last-child');
+                const approvedEl = cards[2].querySelector('p:last-child');
+                if (totalEl) totalEl.innerText = qData.length + '건';
+                const pending = qData.filter(q => q.status === 'DRAFT' || q.status === '작성중').length;
+                const approved = qData.filter(q => q.status === 'APPROVED' || q.status === '완료' || q.status === '입금완불').length;
+                if (pendingEl) pendingEl.innerText = pending + '건';
+                if (approvedEl) approvedEl.innerText = approved + '건';
+            }
+        }
+
+        function getStatusBadge(status) {
+            const styles = {
+                DRAFT: 'bg-slate-100 text-slate-500', SENT: 'bg-blue-50 text-blue-600', APPROVED: 'bg-emerald-50 text-emerald-600',
+                '작성중': 'bg-slate-100 text-slate-500', '완료': 'bg-emerald-50 text-emerald-600', '입금완불': 'bg-purple-50 text-purple-600'
+            };
+            const labels = {
+                DRAFT: '작성 중', SENT: '발송됨', APPROVED: '승인됨',
+                '작성중': '작성 중', '완료': '완료', '입금완불': '입금완불'
+            };
+            const s = styles[status] || 'bg-slate-100 text-slate-500';
+            const l = labels[status] || status || '-';
+            return `<span class="px-3 py-1 rounded-full text-[10px] font-black border ${s}">${l}</span>`;
+        }
+
+        function showList() {
+            document.getElementById('q-list-view').classList.remove('hidden');
+            document.getElementById('q-form-view').classList.add('hidden');
+            renderList();
+        }
+
+        function showForm(id) {
+            _editingId = id || null;
+            document.getElementById('q-list-view').classList.add('hidden');
+            document.getElementById('q-form-view').classList.remove('hidden');
+            document.getElementById('q-customer-search').value = '';
+
+            // 기본값 초기화
+            document.getElementById('q-input-phone').value = '';
+            document.getElementById('q-input-addr').value = '';
+            document.getElementById('q-input-title').value = '';
+            document.getElementById('q-input-note-cust').value = '';
+            document.getElementById('q-input-date-est').value = new Date().toISOString().split('T')[0];
+            document.getElementById('q-input-date-ship').value = '';
+
+            document.getElementById('q-items-body').innerHTML = '';
+            document.getElementById('q-specs-container').innerHTML = '';
+            if (id) {
+                const q = qData.find(x => x.id === id);
+                document.getElementById('q-form-title').innerText = `견적서 수정 — ${q.no}`;
+                document.getElementById('q-customer-search').value = q.customer;
+                document.getElementById('q-input-title').value = q.items || '';
+                document.getElementById('q-input-date-est').value = q.date || new Date().toISOString().split('T')[0];
+            } else {
+                document.getElementById('q-form-title').innerText = '새 견적서 작성';
+            }
+            ensureEmptyRows();
+            lucide.createIcons();
+        }
+
+        // 고객 검색
+        function filterCustomers(val) {
+            const dropdown = document.getElementById('q-customer-dropdown');
+            if (!val) { dropdown.classList.add('hidden'); return; }
+            const filtered = customers.filter(c => c.name.includes(val) || c.id.includes(val));
+            let html = filtered.map(c => `
+                <div class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-none transition" onclick="selectCustomer('${c.id}')">
+                    <p class="font-bold text-slate-800 text-sm">${c.name}</p>
+                    <p class="text-[10px] text-slate-400 font-mono">${c.id}</p>
+                </div>
+            `).join('');
+            html += `<div class="px-4 py-3 bg-slate-50 hover:bg-blue-100 cursor-pointer text-xs font-bold text-blue-600" onclick="registerNew('${val}')">+ 신규 고객 등록: "${val}"</div>`;
+            dropdown.innerHTML = html;
+            dropdown.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function selectCustomer(id) {
+            const customer = customers.find(c => c.id === id);
+            if (customer) {
+                document.getElementById('q-customer-search').value = `${customer.name} (${customer.id})`;
+                document.getElementById('q-input-phone').value = customer.phone || '';
+                document.getElementById('q-input-addr').value = customer.address_base || customer.addr || '';
+            }
+            document.getElementById('q-customer-dropdown').classList.add('hidden');
+        }
+
+        function registerNew(val) { alert(`"${val}" 고객을 신규 등록 모드로 전환합니다.`); selectCustomer('NEW', val); }
+        function showCustomerDropdown() { filterCustomers(document.getElementById('q-customer-search').value); }
+        window.onclick = (e) => { if (!e.target.closest('.relative')) document.getElementById('q-customer-dropdown').classList.add('hidden'); };
+
+        // 행 관리
+        function ensureEmptyRows() {
+            const tbody = document.getElementById('q-items-body');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            let lastFilledIdx = -1;
+            rows.forEach((row, idx) => {
+                const filled = Array.from(row.querySelectorAll('input')).some(i => !i.classList.contains('q-qty') && i.value.trim() !== '' && i.value !== '0');
+                if (filled) lastFilledIdx = idx;
+            });
+            const required = lastFilledIdx + 1 + 2;
+            while (tbody.querySelectorAll('tr').length < required) addItemRow();
+        }
+
+        function addItemRow(item = { code: '', name: '', spec: '', qty: 0, price: 0, note: '' }) {
+            const tbody = document.getElementById('q-items-body');
+            const tr = document.createElement('tr');
+            tr.className = 'group hover:bg-slate-50/50 transition-colors';
+            tr.innerHTML = `
+                <td class="py-3 pl-4"><input type="text" value="${item.code}" placeholder="코드" class="w-full bg-transparent border-none focus:ring-0 text-xs font-mono text-slate-400 q-code" oninput="ensureEmptyRows()" onkeydown="handleKey(event, 'code')"></td>
+                <td class="py-3"><input type="text" value="${item.name}" placeholder="품목명" class="w-full bg-transparent border-none focus:ring-0 text-sm font-bold text-slate-700 q-name" oninput="ensureEmptyRows()" onkeydown="handleKey(event, 'name')"></td>
+                <td class="py-3 pl-6"><input type="text" value="${item.spec}" placeholder="규격" class="w-full bg-transparent border-none focus:ring-0 text-xs text-slate-500 q-spec" oninput="ensureEmptyRows()" onkeydown="handleKey(event, 'spec')"></td>
+                <td class="py-3 text-center"><input type="number" value="${item.qty}" class="w-12 bg-slate-50 border-none rounded-lg text-center text-xs font-bold q-qty" oninput="updateCalc();" onkeydown="handleKey(event, 'qty')"></td>
+                <td class="py-3 text-right"><input type="number" value="${item.price}" class="w-24 bg-slate-50 border-none rounded-lg text-right text-xs font-bold q-price" oninput="updateCalc(); ensureEmptyRows();" onkeydown="handleKey(event, 'price')"></td>
+                <td class="py-3 text-right font-black text-slate-800 text-xs q-total-row">₩ 0</td>
+                <td class="py-3 pl-6"><input type="text" value="${item.note}" placeholder="적요" class="w-full bg-transparent border-none focus:ring-0 text-xs text-slate-400 q-note" oninput="ensureEmptyRows()" onkeydown="handleKey(event, 'note')"></td>
+                <td class="py-3 text-center"><button onclick="this.closest('tr').remove(); updateCalc(); ensureEmptyRows();" class="text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><i data-lucide="minus-circle" class="w-4 h-4"></i></button></td>
+            `;
+            tbody.appendChild(tr);
+            lucide.createIcons();
+            updateCalc();
+        }
+
+        function handleKey(e, type) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const nextTr = e.target.closest('tr').nextElementSibling;
+                if (nextTr) {
+                    const input = nextTr.querySelector(`.q-${type}`);
+                    if (input) { input.focus(); input.select(); }
+                } else {
+                    ensureEmptyRows();
+                    setTimeout(() => {
+                        const newTr = e.target.closest('tr').nextElementSibling;
+                        if (newTr) newTr.querySelector(`.q-${type}`).focus();
+                    }, 10);
+                }
+            }
+        }
+
+        function updateCalc() {
+            let total = 0;
+            document.querySelectorAll('#q-items-body tr').forEach(tr => {
+                const qty = parseFloat(tr.querySelector('.q-qty').value) || 0;
+                const price = parseFloat(tr.querySelector('.q-price').value) || 0;
+                const rowTotal = qty * price;
+                tr.querySelector('.q-total-row').innerText = '₩ ' + rowTotal.toLocaleString();
+                total += rowTotal;
+            });
+            document.getElementById('q-total-supply').innerText = '₩ ' + total.toLocaleString();
+            document.getElementById('q-total-grand').innerText = '₩ ' + Math.round(total * 1.1).toLocaleString();
+        }
+
+        function calcSpecs() {
+            const w = document.getElementById('q-input-w').value || 0, l = document.getElementById('q-input-l').value || 0;
+            document.getElementById('q-calc-pyeong').innerText = ((w/1000 * l/1000) / 3.3058).toFixed(2) + '평';
+        }
+
+        function importFromInventory() {
+            if (!inventory.length) { alert('재고 데이터를 불러오는 중입니다. 잠시 후 다시 시도하세요.'); return; }
+            inventory.sort(() => 0.5 - Math.random()).slice(0, 2).forEach(item => {
+                addItemRow({ code: item.code, name: item.name, spec: item.spec, qty: 1, price: item.price, note: '' });
+            });
+            ensureEmptyRows();
+        }
+
+        // 도면 데이터 수신 리스너
+        window.addEventListener('message', function(e) {
+            const data = e.data;
+            if (data.type === 'IMPORT_DRAWING_BOM') {
+                importBOMFromDrawing(data.payload);
+            }
+        });
+
+        function addSpecCard(specs, drawingName = '도면 제원') {
+            const container = document.getElementById('q-specs-container');
+            const card = document.createElement('div');
+            card.className = 'bg-white p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300 relative group';
+            
+            const w = specs.width || 0, l = specs.length || 0, h = specs.height || 0;
+            const pyeong = ((w/1000 * l/1000) / 3.3058).toFixed(2);
+
+            card.innerHTML = `
+                <button onclick="this.closest('div').remove()" class="absolute top-6 right-6 p-2 text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+                <h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <i data-lucide="maximize" class="text-blue-600 w-5 h-5"></i> ${drawingName}
+                </h3>
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">가로(W)</label>
+                        <div class="p-3 bg-slate-50 rounded-xl text-center font-mono font-bold text-slate-700">${w.toLocaleString()} mm</div>
+                    </div>
+                    <div>
+                        <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">세로(L)</label>
+                        <div class="p-3 bg-slate-50 rounded-xl text-center font-mono font-bold text-slate-700">${l.toLocaleString()} mm</div>
+                    </div>
+                    <div>
+                        <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">높이(H)</label>
+                        <div class="p-3 bg-slate-50 rounded-xl text-center font-mono font-bold text-slate-700">${h.toLocaleString()} mm</div>
+                    </div>
+                </div>
+                <div class="p-4 bg-blue-50 rounded-2xl flex justify-between items-center">
+                    <span class="text-sm font-bold text-blue-600">계산된 평수</span>
+                    <span class="text-xl font-black text-blue-800">${pyeong}평</span>
+                </div>
+            `;
+            container.appendChild(card);
+            lucide.createIcons();
+        }
+
+        function importBOMFromDrawing(payload) {
+            const { specs, bom, drawingId } = payload;
+
+            if (drawingId) {
+                // 도면 ID가 있으면 불러오기 모달을 열고 해당 도면을 자동 선택
+                openDrawingImportModal();
+                // 목록이 로드될 시간을 고려하여 약간의 지연 후 선택 실행
+                setTimeout(() => {
+                    selectImportDrawing(Number(drawingId));
+                }, 500);
+                return;
+            }
+
+            // 구방식 대응
+            showForm(null);
+            if (specs) {
+                addSpecCard(specs, '설계 데이터');
+            }
+            document.getElementById('q-items-body').innerHTML = ''; 
+            if (Array.isArray(bom)) {
+                bom.forEach(item => {
+                    const matchedProduct = inventory.find(inv => inv.name.includes(item.name) || inv.category === item.category);
+                    addItemRow({
+                        code: matchedProduct ? matchedProduct.code : (item.code || ''),
+                        name: item.name,
+                        spec: item.spec || `${specs.width}x${specs.length}x${specs.height}`,
+                        qty: item.qty || 1,
+                        price: matchedProduct ? matchedProduct.price : (item.price || 0),
+                        note: item.note || '도면 자동 연동'
+                    });
+                });
+            }
+            ensureEmptyRows();
+            updateCalc();
+        }
+
+        async function save(isConfirm) {
+            const custSearch = document.getElementById('q-customer-search').value;
+            if (!custSearch) { alert('고객을 선택하거나 입력하세요.'); return; }
+            const grandTotalText = document.getElementById('q-total-grand').innerText;
+            const total = parseInt(grandTotalText.replace(/[^0-9]/g, '')) || 0;
+            const today = new Date().toISOString().split('T')[0];
+            const isEdit = !!_editingId;
+
+            // 품목 수집
+            const items = [];
+            document.querySelectorAll('#q-items-body tr').forEach(tr => {
+                const name = tr.querySelector('.q-name')?.value.trim();
+                const code = tr.querySelector('.q-code')?.value.trim();
+                const spec = tr.querySelector('.q-spec')?.value.trim();
+                const qty = parseFloat(tr.querySelector('.q-qty')?.value) || 0;
+                const price = parseFloat(tr.querySelector('.q-price')?.value) || 0;
+                const note = tr.querySelector('.q-note')?.value.trim();
+                if (name) items.push({ code, name, spec, qty, price, note });
+            });
+
+            const itemSummary = items.length > 0
+                ? items.slice(0,2).map(i=>i.name).join(', ') + (items.length > 2 ? ' 외 '+(items.length-2)+'건' : '')
+                : '(품목 없음)';
+
+            // 수정 모드: 원본 id/no/date 보존, 신규: 새 id/no/date 생성
+            let id, no, date;
+            if (isEdit) {
+                const orig = qData.find(x => x.id === _editingId);
+                id = _editingId;
+                no = orig ? orig.no : '';
+                date = orig ? orig.date : today;
+            } else {
+                id = Date.now();
+                const dateStr = today.slice(2,4) + '/' + today.slice(5,7) + '/' + today.slice(8,10);
+                const todayQuotations = qData.filter(q => q.date === today);
+                no = dateStr + '-' + (todayQuotations.length + 1);
+                date = today;
+            }
+
+            const newQuotation = {
+                id,
+                no,
+                customer: custSearch.replace(/ \(.*\)$/, ''),
+                items: itemSummary,
+                total,
+                payment: '',
+                drawing: false,
+                accounting: false,
+                printed: false,
+                ref: '한남냉동테크(주)',
+                date,
+                status: isConfirm ? '완료' : '작성중'
+            };
+
+            try {
+                const resp = await apiFetch('/api/quotations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newQuotation)
+                });
+                if (!resp.ok) throw new Error('저장 실패');
+                if (isEdit) {
+                    const idx = qData.findIndex(x => x.id === _editingId);
+                    if (idx >= 0) qData[idx] = newQuotation; else qData.unshift(newQuotation);
+                } else {
+                    qData.unshift(newQuotation);
+                }
+                _editingId = null;
+                showToast(isEdit ? '견적서가 수정되었습니다.' : (isConfirm ? '견적이 확정 저장되었습니다.' : '임시 저장되었습니다.'));
+                showList();
+            } catch(e) {
+                alert('저장 중 오류가 발생했습니다: ' + e.message);
+            }
+        }
+
+        function printQuotation(id) {
+            const q = qData.find(x => x.id === id);
+            if (!q) return;
+            const win = window.open('', '_blank', 'width=800,height=900');
+            win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>견적서 — ${q.no}</title>
+<style>
+  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; margin: 0; padding: 32px; color: #111; font-size: 13px; }
+  h1 { font-size: 22px; font-weight: 900; margin: 0 0 4px; }
+  .sub { color: #555; font-size: 12px; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 11px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+  .total { text-align: right; font-size: 15px; font-weight: 900; margin-top: 16px; }
+  .footer { margin-top: 32px; font-size: 11px; color: #888; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+  @media print { body { padding: 16px; } }
+</style></head><body>
+<h1>견 적 서</h1>
+<div class="sub">견적번호: ${q.no} &nbsp;|&nbsp; 작성일: ${q.date || '-'} &nbsp;|&nbsp; ${q.ref || '한남냉동테크(주)'}</div>
+<table>
+  <tr><th>고객사</th><th>품목</th><th>금액</th><th>상태</th></tr>
+  <tr>
+    <td>${q.customer || '-'}</td>
+    <td>${q.items || q.project || '-'}</td>
+    <td style="text-align:right;font-weight:700">₩ ${(q.total || 0).toLocaleString()}</td>
+    <td>${q.status || '-'}</td>
+  </tr>
+</table>
+<div class="total">합계: ₩ ${(q.total || 0).toLocaleString()}</div>
+${q.payment ? `<p style="margin-top:12px;font-size:12px;color:#555">입금 현황: ${q.payment}</p>` : ''}
+<div class="footer">${q.ref || '한남냉동테크(주)'} &nbsp;·&nbsp; 인쇄일: ${new Date().toLocaleDateString('ko-KR')}</div>
+<script>window.onload = function(){ window.print(); }<\/script>
+</body></html>`);
+            win.document.close();
+        }
+
+        async function deleteItem(id) {
+            if (!confirm('이 견적서를 삭제하시겠습니까?')) return;
+            try {
+                await apiFetch('/api/quotations/' + id, { method: 'DELETE' });
+                qData = qData.filter(x => x.id !== id);
+                renderList();
+                showToast('견적서가 삭제되었습니다.', 'info');
+            } catch(e) {
+                alert('삭제 중 오류: ' + e.message);
+            }
+        }
+
+        function showToast(msg, type = 'success') {
+            const colors = { success: '#059669', error: '#dc2626', info: '#2563eb' };
+            const toast = document.createElement('div');
+            toast.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;align-items:center;gap:10px;background:${colors[type]||colors.success};color:white;padding:14px 20px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,0.2);font-family:Pretendard,sans-serif;font-weight:900;font-size:13px;opacity:1;transition:all 0.3s ease;white-space:nowrap`;
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        }
+
+
+        window.onload = initApp;
+
+        // ===== 도면 불러오기 드로어 모달 =====
+        let _importMode = 'append';
+        let _selectedDrawingId = null;
+        let _currentImportBOM = [];
+        let _currentImportSpecs = null;
+
+        function requestDrawingData() {
+            openDrawingImportModal();
+        }
+
+        function goToDrawingTool() {
+            closeDrawingImportModal();
+            // apply 모드로 설계 도구 이동 → "적용 및 복귀" 버튼 표시
+            if (window.parent && typeof window.parent.navigate === 'function') {
+                setTimeout(() => window.parent.navigate('tools', { mode: 'apply' }), 320);
+            }
+        }
+
+        function openDrawingImportModal() {
+            const modal = document.getElementById('drawing-import-modal');
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    document.getElementById('drawing-import-panel').style.transform = 'translateX(0)';
+                });
+            });
+            _selectedDrawingId = null;
+            _currentImportBOM = [];
+            document.getElementById('import-preview-empty').classList.remove('hidden');
+            document.getElementById('import-preview-content').classList.add('hidden');
+            document.getElementById('btn-do-import').disabled = true;
+            document.getElementById('import-selected-count').classList.add('hidden');
+            loadImportDrawingList('');
+            document.getElementById('import-search').value = '';
+            setTimeout(() => document.getElementById('import-search').focus(), 350);
+        }
+
+        function closeDrawingImportModal() {
+            const panel = document.getElementById('drawing-import-panel');
+            panel.style.transform = 'translateX(100%)';
+            setTimeout(() => {
+                document.getElementById('drawing-import-modal').classList.add('hidden');
+            }, 300);
+        }
+
+        function setImportMode(mode) {
+            _importMode = mode;
+            const appendBtn = document.getElementById('mode-btn-append');
+            const replaceBtn = document.getElementById('mode-btn-replace');
+            const activeClass = 'flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[11px] font-black transition-all bg-white text-slate-700 shadow-sm';
+            const inactiveClass = 'flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[11px] font-black transition-all text-slate-400 hover:text-slate-600';
+            appendBtn.className = mode === 'append' ? activeClass : inactiveClass;
+            replaceBtn.className = mode === 'replace' ? activeClass : inactiveClass;
+        }
+
+        async function loadImportDrawingList(filter) {
+            let store = [];
+            try {
+                const res = await apiFetch('/api/drawings');
+                if (res.ok) store = await res.json();
+            } catch(e) { store = []; }
+            const q = (filter || '').trim().toLowerCase();
+            const list = q ? store.filter(d => (d.name || '').toLowerCase().includes(q)) : store.slice();
+            list.sort((a, b) => {
+                if (a.starred !== b.starred) return a.starred ? -1 : 1;
+                return new Date(b.timestamp) - new Date(a.timestamp);
+            });
+            const container = document.getElementById('import-list-body');
+            if (!list.length) {
+                container.innerHTML = `<div class="text-center py-10 text-slate-400">
+                    <div class="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <i data-lucide="folder-open" class="w-7 h-7 text-slate-300"></i>
+                    </div>
+                    <p class="text-xs font-black">${q ? '검색 결과가 없습니다' : '저장된 도면이 없습니다'}</p>
+                    ${!q ? '<p class="text-[10px] mt-1 text-slate-300">설계 도구에서 도면을 저장해주세요</p>' : ''}
+                </div>`;
+                lucide.createIcons();
+                return;
+            }
+            const modeInfo = {
+                storage:    { label: '저장고',     color: 'blue',    icon: 'snowflake' },
+                base:       { label: '기초조립대', color: 'amber',   icon: 'layout-panel-top' },
+                checkplate: { label: '체크판',     color: 'emerald', icon: 'grid-3x3' }
+            };
+            container.innerHTML = list.map(d => {
+                const s = d.state;
+                const mi = modeInfo[s.mode || 'storage'] || modeInfo.storage;
+                const dt = new Date(d.timestamp);
+                const dateStr = dt.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+                const pyeong = ((s.width / 1000) * (s.length / 1000) * 0.3025).toFixed(1);
+                const isSelected = d.id === _selectedDrawingId;
+                return `<div class="drawing-import-card p-3.5 rounded-xl border ${isSelected ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:border-blue-100 hover:bg-blue-50/30'} cursor-pointer transition-all"
+                             id="dcard-${d.id}" onclick="selectImportDrawing(${d.id})">
+                    <div class="flex items-start gap-2.5">
+                        <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-${mi.color}-100">
+                            <i data-lucide="${mi.icon}" class="w-4 h-4 text-${mi.color}-600"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5 mb-0.5">
+                                ${d.starred ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fbbf24" stroke="#fbbf24" stroke-width="2" class="w-3 h-3 shrink-0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>' : ''}
+                                <span class="text-xs font-black text-slate-800 truncate">${d.name}</span>
+                            </div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-${mi.color}-100 text-${mi.color}-700">${mi.label}</span>
+                                <span class="text-[9px] text-slate-400">${pyeong}평</span>
+                                <span class="text-[9px] text-slate-300">·</span>
+                                <span class="text-[9px] text-slate-400 font-mono">${(s.width/1000).toFixed(1)}×${(s.length/1000).toFixed(1)}×${(s.height/1000).toFixed(1)}m</span>
+                            </div>
+                        </div>
+                        <span class="text-[9px] text-slate-300 shrink-0 mt-0.5">${dateStr}</span>
+                    </div>
+                </div>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function filterImportList(val) {
+            loadImportDrawingList(val);
+        }
+
+        async function selectImportDrawing(id, retryCount = 0) {
+            _selectedDrawingId = Number(id);
+            let store = [];
+            try {
+                const res = await apiFetch('/api/drawings');
+                if (res.ok) store = await res.json();
+            } catch(e) {}
+            
+            const drawing = store.find(d => Number(d.id) === Number(id));
+            
+            if (!drawing && retryCount < 3) {
+                setTimeout(() => selectImportDrawing(id, retryCount + 1), 500);
+                return;
+            }
+
+            if (!drawing) return;
+            
+            await loadImportDrawingList(document.getElementById('import-search').value);
+            renderImportPreview(drawing);
+            
+            const card = document.getElementById(`dcard-${id}`);
+            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function calcImportBOM(state) {
+            const w = state.width || 5000;
+            const l = state.length || 4000;
+            const h = state.height || 2400;
+            const t = state.thickness || 100;
+            const hasFloor = state.hasFloor !== false;
+            const doors = state.doors || [];
+            const partitions = state.partitions || [];
+            const drains = state.drains || [];
+            const mode = state.mode || 'storage';
+            const items = [];
+
+            if (mode === 'storage') {
+                // 1. 칸막이 면적 계산
+                const innerH = h - (hasFloor ? 2 * t : t);
+                let partitionTotalArea = 0;
+                partitions.forEach(p => {
+                    const pLen = (p.dir === 'h' ? (w - 2 * t) : (l - 2 * t));
+                    partitionTotalArea += (pLen * innerH) / 1e6;
+                });
+
+                // 2. 저장고 외경 면적 계산
+                const shellArea = hasFloor
+                    ? (2 * (w * l + w * h + l * h) / 1e6)
+                    : ((w * l + 2 * (w * h + l * h)) / 1e6);
+                
+                const totalAreaM2 = shellArea + partitionTotalArea;
+                
+                // 칸막이가 있을 경우 가로x세로를 괄호로 묶음
+                let panelDim = `W${w.toLocaleString()} × L${l.toLocaleString()} × H${h.toLocaleString()}`;
+                if (partitions.length > 0) {
+                    panelDim = `(W${w.toLocaleString()} × L${l.toLocaleString()}) × H${h.toLocaleString()}`;
+                }
+
+                items.push({
+                    icon: 'layers', color: '#3b82f6',
+                    name: `우레탄 판넬 ${t}T`,
+                    spec: hasFloor ? '바닥포함' : '바닥제외',
+                    qty: parseFloat(totalAreaM2.toFixed(2)), unit: 'm²',
+                    note: panelDim
+                });
+
+                // 기초조립대 체크되어 있다면 추가
+                if (state.hasBase) {
+                    const floorArea = (w * l) / 1e6;
+                    items.push({
+                        icon: 'grip', color: '#f59e0b',
+                        name: '기초조립대 (아연각)',
+                        spec: '50×50',
+                        qty: parseFloat(floorArea.toFixed(2)), unit: 'm²',
+                        note: '기초대 시공'
+                    });
+                }
+
+                doors.filter(d => d.type === 'overlap').forEach(d => {
+                    items.push({
+                        icon: 'door-open', color: '#10b981',
+                        name: '오버랩 도어',
+                        spec: d.direction === '우' ? '우도어' : '좌도어',
+                        qty: 1, unit: 'SET',
+                        note: `W${d.width} × H${d.height || 1800}${d.openDir === '안' ? ' · 내개방' : ''}`
+                    });
+                });
+                doors.filter(d => d.type === 'sliding').forEach(d => {
+                    const specLabel = d.direction === '양개' ? '양개도어' : (d.direction === '우' ? '우도어' : '좌도어');
+                    items.push({
+                        icon: 'move-horizontal', color: '#10b981',
+                        name: '슬라이딩 도어',
+                        spec: specLabel,
+                        qty: 1, unit: 'SET',
+                        note: `W${d.width} × H${d.height || 2000}${d.operation === '전동' ? ' · 전동' : ''}`
+                    });
+                });
+                // 칸막이 개별 항목은 삭제 (판넬에 합산됨)
+                
+                if (drains.length > 0) {
+                    items.push({
+                        icon: 'droplets', color: '#06b6d4',
+                        name: '바닥 배수구',
+                        spec: 'Ø50',
+                        qty: drains.length, unit: 'EA',
+                        note: '바닥 배수'
+                    });
+                }
+            } else if (mode === 'base') {
+                const pw = state.pipeW || 50;
+                const approxLen = parseFloat((((w - pw) * 2 + (l - pw) * 2) / 1000).toFixed(1));
+                items.push({
+                    icon: 'grip', color: '#f59e0b',
+                    name: `아연 각파이프 ${pw}×${pw}`,
+                    spec: '2.3T · 6m 원장',
+                    qty: approxLen, unit: 'm',
+                    note: '기초조립대'
+                });
+            } else if (mode === 'checkplate') {
+                const sw = state.sheetW || 1219;
+                const sl = state.sheetL || 2438;
+                items.push({
+                    icon: 'grid-3x3', color: '#10b981',
+                    name: '체크 강판 (체크플레이트)',
+                    spec: `원장 ${sw}×${sl}`,
+                    qty: parseFloat((w * l / 1e6).toFixed(2)), unit: 'm²',
+                    note: '바닥 체크판'
+                });
+            }
+            return items;
+        }
+
+        function renderImportPreview(drawing) {
+            const state = drawing.state;
+            const bom = calcImportBOM(state);
+            _currentImportBOM = bom;
+            _currentImportSpecs = { width: state.width, length: state.length, height: state.height };
+            const pyeong = ((state.width / 1000) * (state.length / 1000) * 0.3025).toFixed(1);
+            const modeMap = {
+                storage:    { label: '저장고 레이아웃', gradient: 'linear-gradient(135deg,#2563eb,#1e40af)' },
+                base:       { label: '기초조립대',      gradient: 'linear-gradient(135deg,#d97706,#92400e)' },
+                checkplate: { label: '바닥 체크판',      gradient: 'linear-gradient(135deg,#059669,#065f46)' }
+            };
+            const mi = modeMap[state.mode || 'storage'] || modeMap.storage;
+            document.getElementById('import-preview-empty').classList.add('hidden');
+            const content = document.getElementById('import-preview-content');
+            content.classList.remove('hidden');
+            const doorCount = (state.doors || []).length;
+            const partCount = (state.partitions || []).length;
+            const drainCount = (state.drains || []).length;
+
+            content.innerHTML = `
+                <div style="background:${mi.gradient}" class="rounded-2xl p-5 text-white mb-5">
+                    <div class="flex items-start justify-between mb-4">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:rgba(255,255,255,0.6)">${mi.label}</p>
+                            <h4 class="text-xl font-black leading-tight">${drawing.name}</h4>
+                        </div>
+                        <div class="rounded-xl px-3 py-2 text-center ml-3 shrink-0" style="background:rgba(255,255,255,0.15)">
+                            <p class="text-[9px] font-black uppercase" style="color:rgba(255,255,255,0.6)">면적</p>
+                            <p class="text-lg font-black">${pyeong}평</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-4 gap-2">
+                        ${[['가로 W', (state.width/1000).toFixed(2), 'm'], ['세로 L', (state.length/1000).toFixed(2), 'm'], ['높이 H', (state.height/1000).toFixed(2), 'm'], ['판넬 T', state.thickness || 100, 'mm']].map(([lbl, val, unit]) => `
+                        <div class="rounded-xl p-2.5 text-center" style="background:rgba(255,255,255,0.1)">
+                            <p class="text-[9px] font-black" style="color:rgba(255,255,255,0.5)">${lbl}</p>
+                            <p class="text-sm font-black mt-0.5">${val}</p>
+                            <p class="text-[9px]" style="color:rgba(255,255,255,0.4)">${unit}</p>
+                        </div>`).join('')}
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 mb-5">
+                    ${doorCount > 0 ? `<span class="flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100"><i data-lucide="door-open" class="w-3.5 h-3.5"></i> 도어 ${doorCount}개</span>` : ''}
+                    ${partCount > 0 ? `<span class="flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100"><i data-lucide="separator-vertical" class="w-3.5 h-3.5"></i> 칸막이 ${partCount}개</span>` : ''}
+                    ${drainCount > 0 ? `<span class="flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-100"><i data-lucide="droplets" class="w-3.5 h-3.5"></i> 배수구 ${drainCount}개</span>` : ''}
+                    <span class="flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-full bg-slate-50 text-slate-600 border border-slate-100"><i data-lucide="layers" class="w-3.5 h-3.5"></i> 바닥판넬 ${state.hasFloor !== false ? '포함' : '제외'}</span>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h5 class="text-[11px] font-black text-slate-400 uppercase tracking-widest">자재 목록 선택</h5>
+                        <button onclick="toggleAllBOMItems()" class="text-[10px] font-black text-blue-500 hover:text-blue-700 transition">전체 선택/해제</button>
+                    </div>
+                    <div class="space-y-2">
+                        ${bom.length === 0 ? `<div class="text-center py-6 text-slate-300 text-xs font-bold">자재 데이터가 없습니다</div>` :
+                        bom.map((item, idx) => `
+                            <label class="flex items-center gap-3.5 p-3.5 bg-white border border-slate-100 rounded-xl hover:border-blue-200 cursor-pointer transition-all">
+                                <input type="checkbox" checked class="bom-item-check w-4 h-4 accent-blue-600 shrink-0 cursor-pointer" data-idx="${idx}" onchange="updateImportCount()">
+                                <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style="background:${item.color}18">
+                                    <i data-lucide="${item.icon}" class="w-4 h-4" style="color:${item.color}"></i>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-sm font-black text-slate-800">${item.name}</span>
+                                        <span class="text-sm font-black shrink-0" style="color:${item.color}">${item.qty} ${item.unit}</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 mt-0.5 truncate">${item.spec}${item.note ? ' · ' + item.note : ''}</p>
+                                </div>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+            updateImportCount();
+        }
+
+        function updateImportCount() {
+            const checked = document.querySelectorAll('.bom-item-check:checked').length;
+            const countEl = document.getElementById('import-selected-count');
+            const countNum = document.getElementById('import-count-num');
+            const btn = document.getElementById('btn-do-import');
+            if (checked > 0) {
+                countEl.classList.remove('hidden');
+                countNum.textContent = checked;
+                btn.disabled = false;
+            } else {
+                countEl.classList.add('hidden');
+                btn.disabled = true;
+            }
+        }
+
+        function toggleAllBOMItems() {
+            const checks = document.querySelectorAll('.bom-item-check');
+            const allChecked = Array.from(checks).every(c => c.checked);
+            checks.forEach(c => { c.checked = !allChecked; });
+            updateImportCount();
+        }
+
+        function executeDrawingImport() {
+            const selectedItems = [];
+            document.querySelectorAll('.bom-item-check:checked').forEach(cb => {
+                const idx = parseInt(cb.dataset.idx);
+                if (_currentImportBOM[idx]) selectedItems.push(_currentImportBOM[idx]);
+            });
+            if (!selectedItems.length) return;
+
+            if (_importMode === 'replace') {
+                document.getElementById('q-items-body').innerHTML = '';
+                document.getElementById('q-specs-container').innerHTML = '';
+            }
+            
+            if (_currentImportSpecs) {
+                // 제원 카드 추가
+                const drawingName = document.querySelector('.drawing-import-card.border-blue-400 span.truncate')?.innerText || '도면 제원';
+                addSpecCard(_currentImportSpecs, drawingName);
+            }
+
+            // 빈 행(모든 텍스트 입력이 비어있는 행)을 순서대로 수집
+            const tbody = document.getElementById('q-items-body');
+            function collectEmptyRows() {
+                return Array.from(tbody.querySelectorAll('tr')).filter(tr =>
+                    !Array.from(tr.querySelectorAll('input')).some(i =>
+                        !i.classList.contains('q-qty') && i.value.trim() !== '' && i.value !== '0'
+                    )
+                );
+            }
+            function fillRow(tr, item) {
+                tr.querySelector('.q-code').value  = item.code  || '';
+                tr.querySelector('.q-name').value  = item.name  || '';
+                tr.querySelector('.q-spec').value  = item.spec  || '';
+                tr.querySelector('.q-qty').value   = item.qty   ?? 1;
+                tr.querySelector('.q-price').value = item.price ?? 0;
+                tr.querySelector('.q-note').value  = item.note  ?? '';
+            }
+
+            // 빈 행에 채우고, 모자라면 새 행 추가
+            let emptyRows = collectEmptyRows();
+            let emptyIdx  = 0;
+            selectedItems.forEach(item => {
+                if (emptyIdx < emptyRows.length) {
+                    fillRow(emptyRows[emptyIdx], item);
+                    emptyIdx++;
+                } else {
+                    addItemRow({ code: '', name: item.name, spec: item.spec, qty: item.qty, price: item.price ?? 0, note: item.note ?? '' });
+                }
+            });
+
+            updateCalc();
+            ensureEmptyRows();
+            closeDrawingImportModal();
+
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;align-items:center;gap:12px;background:#059669;color:white;padding:14px 20px;border-radius:16px;box-shadow:0 20px 40px rgba(5,150,105,0.3);font-family:Pretendard,sans-serif;opacity:1;transition:all 0.3s ease';
+            toast.innerHTML = `
+                <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                    <i data-lucide="check-circle" style="width:18px;height:18px"></i>
+                </div>
+                <div>
+                    <p style="font-weight:900;font-size:14px;margin:0">도면 연동 완료!</p>
+                    <p style="font-size:11px;color:rgba(255,255,255,0.75);margin:2px 0 0">${selectedItems.length}개 자재가 견적서에 추가되었습니다</p>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            lucide.createIcons();
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+
+    <!-- ===== 도면 불러오기 드로어 모달 ===== -->
+    <div id="drawing-import-modal" class="fixed inset-0 z-50 hidden" style="font-family:'Pretendard',sans-serif">
+        <!-- 반투명 배경 -->
+        <div class="absolute inset-0" style="background:rgba(15,23,42,0.5);backdrop-filter:blur(4px)" onclick="closeDrawingImportModal()"></div>
+
+        <!-- 슬라이드인 패널 -->
+        <div id="drawing-import-panel" class="absolute right-0 top-0 h-full bg-white flex flex-col shadow-2xl"
+             style="width:min(900px,96vw);transform:translateX(100%);transition:transform 0.3s ease-out">
+
+            <!-- 헤더 -->
+            <div class="flex items-center justify-between px-7 py-5 border-b border-slate-100 shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                         style="background:linear-gradient(135deg,#3b82f6,#1d4ed8);box-shadow:0 8px 20px rgba(59,130,246,0.35)">
+                        <i data-lucide="ruler" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-black text-slate-800 tracking-tight">도면에서 자재 불러오기</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">저장된 설계 도면을 선택하여 자재 목록을 견적서에 자동으로 추가합니다</p>
+                    </div>
+                </div>
+                <button onclick="closeDrawingImportModal()"
+                        class="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- 바디 (2-column) -->
+            <div class="flex flex-1 overflow-hidden min-h-0">
+
+                <!-- 좌측: 도면 목록 -->
+                <div class="shrink-0 border-r border-slate-100 flex flex-col" style="width:280px;background:#fafbfc">
+                    <div class="p-3.5 border-b border-slate-100 shrink-0">
+                        <div class="relative">
+                            <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5 pointer-events-none"></i>
+                            <input type="text" id="import-search" placeholder="도면 검색..."
+                                   class="w-full pl-10 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-bold placeholder:font-normal placeholder:text-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition"
+                                   oninput="filterImportList(this.value)"
+                                   oncompositionend="filterImportList(this.value)">
+                        </div>
+                    </div>
+                    <div id="import-list-body" class="flex-1 overflow-y-auto p-2.5 space-y-1.5"></div>
+                    <!-- 새 도면 만들기 버튼 -->
+                    <div class="p-3 border-t border-slate-100 shrink-0">
+                        <button onclick="goToDrawingTool()"
+                                class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black transition-all"
+                                style="background:#eff6ff;color:#2563eb;border:1.5px dashed #93c5fd">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                            새 도면 만들기
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 우측: 프리뷰 -->
+                <div class="flex-1 overflow-y-auto">
+                    <!-- 빈 상태 -->
+                    <div id="import-preview-empty" class="h-full flex flex-col items-center justify-center text-slate-300 p-8 text-center">
+                        <div class="w-24 h-24 rounded-3xl flex items-center justify-center mb-5" style="background:#f1f5f9">
+                            <i data-lucide="mouse-pointer-click" class="w-12 h-12 text-slate-300"></i>
+                        </div>
+                        <p class="text-base font-black text-slate-400 mb-2">도면을 선택하세요</p>
+                        <p class="text-xs text-slate-300 leading-relaxed">왼쪽 목록에서 도면을 클릭하면<br>자재 목록을 확인하고 선택할 수 있습니다</p>
+                    </div>
+                    <!-- 프리뷰 컨텐츠 -->
+                    <div id="import-preview-content" class="hidden p-6"></div>
+                </div>
+            </div>
+
+            <!-- 푸터 -->
+            <div class="px-6 py-5 border-t border-slate-100 bg-white shrink-0">
+                <div class="flex items-center justify-between gap-4">
+                    <!-- 불러오기 방식 토글 -->
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-wider">불러오기 방식</span>
+                        <div class="flex rounded-xl p-1 gap-0.5" style="background:#f1f5f9">
+                            <button id="mode-btn-append" onclick="setImportMode('append')"
+                                class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[11px] font-black transition-all bg-white text-slate-700 shadow-sm">
+                                <i data-lucide="plus" class="w-3 h-3"></i> 추가
+                            </button>
+                            <button id="mode-btn-replace" onclick="setImportMode('replace')"
+                                class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[11px] font-black transition-all text-slate-400 hover:text-slate-600">
+                                <i data-lucide="refresh-cw" class="w-3 h-3"></i> 교체
+                            </button>
+                        </div>
+                        <div class="hidden text-xs text-slate-400 pl-2 border-l border-slate-100" id="import-mode-hint">
+                            <span id="import-mode-hint-text">기존 항목에 추가됩니다</span>
+                        </div>
+                    </div>
+                    <!-- 카운트 + 버튼 -->
+                    <div class="flex items-center gap-3">
+                        <span id="import-selected-count" class="text-xs text-slate-400 font-bold hidden">
+                            <span id="import-count-num">0</span>개 항목 선택됨
+                        </span>
+                        <button id="btn-do-import" onclick="executeDrawingImport()" disabled
+                            class="flex items-center gap-2 px-7 py-3 text-white rounded-2xl font-black text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            style="background:linear-gradient(135deg,#2563eb,#1d4ed8);box-shadow:0 8px 24px rgba(37,99,235,0.35)">
+                            <i data-lucide="file-plus" class="w-4 h-4"></i>
+                            견적서에 추가
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

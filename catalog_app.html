@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attribute-based SKU Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; }
+        .attr-card { transition: all 0.2s ease; }
+        .attr-card:hover { border-color: #3b82f6; background-color: #eff6ff; }
+        .sku-badge { font-family: 'JetBrains Mono', monospace; letter-spacing: -0.5px; }
+    </style>
+
+<style id="erp-skin">
+:root{--bg:#f4f5f7;--line:#e5e7eb;--line-2:#eef0f3;--ink:#0f172a;--mute:#64748b;--brand:#1e40af;--brand-soft:#eff4ff}
+html,body{font-family:'Pretendard',sans-serif!important;background:var(--bg)!important;color:var(--ink)!important;font-size:13px!important;line-height:1.4!important}
+body{padding:14px 18px 28px!important}
+.max-w-7xl{max-width:100%!important}
+.rounded-3xl,.rounded-2xl{border-radius:6px!important}
+.rounded-xl{border-radius:5px!important}
+.shadow-xl,.shadow-2xl,.shadow-lg{box-shadow:none!important}
+.shadow-md,.shadow-sm{box-shadow:0 1px 2px rgba(15,23,42,.04)!important}
+.border-slate-100,.border-slate-200,.border-slate-50{border-color:var(--line)!important}
+.text-3xl{font-size:16px!important;font-weight:700!important;letter-spacing:-.01em!important}
+.text-2xl{font-size:18px!important;font-weight:800!important}
+.text-lg{font-size:13px!important;font-weight:700!important}
+.gap-8{gap:12px!important}.gap-6{gap:10px!important}.gap-4{gap:8px!important}.gap-3{gap:6px!important}
+.space-y-6>*+*{margin-top:10px!important}.mb-8{margin-bottom:12px!important}.mb-6{margin-bottom:10px!important}
+.p-6,.p-8{padding:12px 14px!important}.p-4{padding:8px!important}
+input,select,textarea{background:#fff!important;border:1px solid var(--line)!important;font-size:12.5px!important;font-weight:500!important;color:var(--ink)!important;height:30px!important;padding:6px 10px!important;border-radius:5px!important}
+input:focus,select:focus{border-color:var(--brand)!important;box-shadow:0 0 0 3px rgba(30,64,175,.08)!important}
+label{font-size:10.5px!important;font-weight:700!important;letter-spacing:.04em!important;color:var(--mute)!important;text-transform:uppercase!important;margin-bottom:3px!important}
+.bg-blue-600{background:var(--brand)!important}
+.bg-blue-700,.hover\:bg-blue-700:hover{background:#1e3a8a!important}
+.bg-blue-50,.bg-blue-100{background:var(--brand-soft)!important}
+.text-blue-600{color:var(--brand)!important}
+.bg-slate-50,.bg-slate-100{background:#fff!important}
+button{font-size:12px!important;font-weight:600!important}
+button.bg-blue-600,button.bg-white{padding:6px 12px!important;border-radius:5px!important;height:30px!important;display:inline-flex!important;align-items:center!important;line-height:1!important}
+table thead th{padding:7px 10px!important;font-size:10.5px!important;background:#f8fafc!important;color:#475569!important;text-transform:uppercase!important;font-weight:600!important;border-bottom:1px solid var(--line)!important;letter-spacing:.04em!important}
+table tbody td{padding:7px 10px!important;border-bottom:1px solid var(--line-2)!important;font-size:12px!important}
+table tbody tr:hover{background:#f8fafc!important}
+</style>
+</head>
+<body class="p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h2 class="text-3xl font-black text-slate-800 tracking-tight">상품 및 SKU 마스터</h2>
+                <p class="text-slate-500 mt-1">속성 기반의 유연한 제품 체계와 가상 SKU 시스템을 관리합니다.</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="openAttrSettings()" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition flex items-center gap-2">
+                    <i data-lucide="settings" class="w-4 h-4"></i> 속성 설정
+                </button>
+                <button onclick="openNewProduct()" class="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-200 flex items-center gap-2">
+                    <i data-lucide="plus" class="w-5 h-5"></i> 신규 제품 등록
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-8">
+            <!-- 좌측: 카테고리 선택 -->
+            <div class="col-span-3 space-y-2">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;margin-left:8px;margin-right:4px;">
+                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">제품 카테고리</h3>
+                    <button onclick="openAddCategory()" title="카테고리 추가" style="padding:4px 8px;border-radius:5px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;color:#1e40af;font-size:11px;font-weight:700;display:flex;align-items:center;gap:3px;height:24px;">
+                        <i data-lucide="plus" style="width:11px;height:11px;"></i> 추가
+                    </button>
+                </div>
+                <div id="category-list" class="space-y-1"></div>
+            </div>
+
+            <!-- 우측: 속성 필터 및 결과 -->
+            <div class="col-span-9 space-y-6">
+                <!-- 동적 속성 필터 영역 -->
+                <div id="dynamic-filters" class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                    <div class="flex items-center justify-between mb-6">
+                        <h4 class="font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="filter" class="w-4 h-4 text-blue-600"></i> 상세 사양 필터
+                        </h4>
+                        <button onclick="resetFilters()" class="text-xs font-bold text-slate-400 hover:text-blue-600">필터 초기화</button>
+                    </div>
+                    <div id="filter-container" class="grid grid-cols-3 gap-6">
+                        <!-- 카테고리에 따라 여기에 Select 박스들이 생성됨 -->
+                    </div>
+                </div>
+
+                <!-- 제품 리스트 테이블 -->
+                <div class="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+                    <div class="px-8 py-5 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+                        <span id="result-count" class="text-xs font-bold text-slate-500">조회 결과: 0건</span>
+                        <div class="flex gap-4 text-[11px] font-bold text-slate-400">
+                            <span class="flex items-center gap-1"><i data-lucide="info" class="w-3 h-3"></i> SKU는 실시간으로 조합 생성됩니다.</span>
+                        </div>
+                    </div>
+                    <table class="w-full text-left">
+                        <thead class="bg-white text-slate-400 font-black text-[10px] uppercase tracking-widest border-b border-slate-50">
+                            <tr>
+                                <th class="px-8 py-4">가상 SKU (Virtual SKU)</th>
+                                <th class="px-6 py-4">제품 명칭</th>
+                                <th class="px-6 py-4">상세 사양</th>
+                                <th class="px-6 py-4 text-right">기본 단가</th>
+                                <th class="px-8 py-4 text-center">상태</th>
+                            </tr>
+                        </thead>
+                        <tbody id="product-list" class="divide-y divide-slate-50">
+                            <!-- 필터링된 결과가 여기에 표시됨 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 메타데이터 (실제로는 API에서 가져옴)
+        const catalogMeta = {
+            tenant: { sku_separator: "-" },
+            categories: [
+                { id: "CAT-PNL", name: "우레탄 판넬", code: "PNL", sku_rule: ["category_code", "material", "thickness", "type"], attributes: ["material", "thickness", "type"] },
+                { id: "CAT-CDU", name: "냉동기(CDU)", code: "CDU", sku_rule: ["category_code", "hp", "refrigerant", "comp_type"], attributes: ["hp", "refrigerant", "comp_type"] }
+            ],
+            attributes: {
+                material: { name: "재질", options: { "PIR": "PIR(난연)", "PUR": "우레탄(일반)", "SUS": "스테인리스" } },
+                thickness: { name: "두께", options: { "050": "50T", "075": "75T", "100": "100T", "150": "150T" } },
+                type: { name: "형태", options: { "RP": "지붕판", "WP": "벽체판", "FL": "바닥판" } },
+                hp: { name: "마력", options: { "020": "2HP", "030": "3HP", "050": "5HP", "100": "10HP" } },
+                refrigerant: { name: "냉매", options: { "R22": "R-22", "404": "R-404A", "448": "R-448A" } },
+                comp_type: { name: "압축기", options: { "SCR": "스크롤", "REC": "왕복동", "SEM": "반밀폐" } }
+            }
+        };
+
+        // 샘플 데이터 (Variant 형태)
+        const products = [
+            { id: 1, catId: "CAT-PNL", name: "고성능 난연 판넬", price: 45000, attrs: { material: "PIR", thickness: "100", type: "WP" } },
+            { id: 2, catId: "CAT-PNL", name: "표준 우레탄 판넬", price: 38000, attrs: { material: "PUR", thickness: "075", type: "WP" } },
+            { id: 3, catId: "CAT-PNL", name: "SUS 위생 판넬", price: 85000, attrs: { material: "SUS", thickness: "100", type: "FL" } },
+            { id: 4, catId: "CAT-CDU", name: "중온용 냉동기", price: 4200000, attrs: { hp: "050", refrigerant: "404", comp_type: "SCR" } },
+            { id: 5, catId: "CAT-CDU", name: "대형 저온 냉동 유닛", price: 8500000, attrs: { hp: "100", refrigerant: "448", comp_type: "SEM" } }
+        ];
+
+        let currentCatId = "CAT-PNL";
+        let activeFilters = {};
+
+        function init() {
+            renderCategories();
+            selectCategory("CAT-PNL");
+            lucide.createIcons();
+        }
+
+        function renderCategories() {
+            const container = document.getElementById('category-list');
+            container.innerHTML = catalogMeta.categories.map(cat => `
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <button onclick="selectCategory('${cat.id}')" id="btn-${cat.id}"
+                            class="flex items-center justify-between px-5 py-3 rounded-2xl font-bold transition-all text-sm
+                            ${currentCatId === cat.id ? 'bg-white text-blue-600 shadow-md border-l-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}"
+                            style="flex:1;text-align:left;">
+                        ${cat.name}
+                    </button>
+                    <button onclick="openEditCategory('${cat.id}')" title="편집"
+                            style="flex-shrink:0;padding:6px;border-radius:6px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;color:#64748b;display:flex;align-items:center;height:30px;">
+                        <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+                    </button>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        function selectCategory(id) {
+            currentCatId = id;
+            activeFilters = {};
+            renderCategories();
+            renderFilters();
+            renderProducts();
+        }
+
+        function renderFilters() {
+            const cat = catalogMeta.categories.find(c => c.id === currentCatId);
+            const container = document.getElementById('filter-container');
+            
+            container.innerHTML = cat.attributes.map(attrKey => {
+                const attr = catalogMeta.attributes[attrKey];
+                return `
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${attr.name}</label>
+                        <select onchange="updateFilter('${attrKey}', this.value)" 
+                                class="w-full p-3 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer">
+                            <option value="">전체</option>
+                            ${Object.entries(attr.options).map(([code, label]) => `
+                                <option value="${code}">${label}</option>
+                            `).join('')}
+                        </select>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateFilter(key, val) {
+            if (val) activeFilters[key] = val;
+            else delete activeFilters[key];
+            renderProducts();
+        }
+
+        function resetFilters() {
+            selectCategory(currentCatId);
+        }
+
+        /**
+         * 핵심 로직: 가상 SKU 생성
+         */
+        function generateSKU(cat, product) {
+            const parts = [];
+            cat.sku_rule.forEach(ruleKey => {
+                if (ruleKey === 'category_code') parts.push(cat.code);
+                else if (product.attrs[ruleKey]) parts.push(product.attrs[ruleKey]);
+            });
+            return parts.join(catalogMeta.tenant.sku_separator);
+        }
+
+        function renderProducts() {
+            const cat = catalogMeta.categories.find(c => c.id === currentCatId);
+            const listContainer = document.getElementById('product-list');
+            
+            const filtered = products.filter(p => {
+                if (p.catId !== currentCatId) return false;
+                // 속성 필터 적용 (JSONB 포함 검색 시뮬레이션)
+                for (let key in activeFilters) {
+                    if (p.attrs[key] !== activeFilters[key]) return false;
+                }
+                return true;
+            });
+
+            document.getElementById('result-count').innerText = `조회 결과: ${filtered.length}건`;
+
+            listContainer.innerHTML = filtered.map(p => {
+                const sku = generateSKU(cat, p);
+                const attrLabels = Object.entries(p.attrs).map(([key, val]) => {
+                    const label = catalogMeta.attributes[key].options[val];
+                    return `<span class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">${label}</span>`;
+                }).join(' ');
+
+                return `
+                    <tr class="hover:bg-blue-50/30 transition group cursor-pointer" onclick="showProductDetail(${p.id})">
+                        <td class="px-8 py-5">
+                            <div class="sku-badge bg-slate-900 text-blue-400 px-3 py-1.5 rounded-lg text-xs font-bold inline-block shadow-lg">
+                                ${sku}
+                            </div>
+                        </td>
+                        <td class="px-6 py-5">
+                            <p class="font-bold text-slate-800">${p.name}</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">ID: PROD-${p.id.toString().padStart(4, '0')}</p>
+                        </td>
+                        <td class="px-6 py-5">
+                            <div class="flex flex-wrap gap-1">${attrLabels}</div>
+                        </td>
+                        <td class="px-6 py-5 text-right font-bold text-slate-700">
+                            ₩ ${p.price.toLocaleString()}
+                        </td>
+                        <td class="px-8 py-5 text-center">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="정상"></span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        window.onload = init;
+
+        let nextProductId = 6;
+        let currentDetailProductId = null;
+        let editingCategoryId = null;
+
+        function openModal(id) {
+            document.getElementById('modal-overlay').style.display = 'flex';
+            ['modal-attr', 'modal-new-product', 'modal-product-detail', 'modal-category'].forEach(m => {
+                document.getElementById(m).style.display = m === id ? 'block' : 'none';
+            });
+        }
+
+        function closeModal(e) {
+            if (!e || e.target === document.getElementById('modal-overlay')) {
+                document.getElementById('modal-overlay').style.display = 'none';
+            }
+        }
+
+        function showCatalogToast(msg, type) {
+            const colors = { success: '#16a34a', error: '#dc2626', info: '#1e40af' };
+            const t = document.createElement('div');
+            t.style.cssText = `position:fixed;bottom:20px;right:20px;background:${colors[type]||'#1e40af'};color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.2)`;
+            t.textContent = msg;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+
+        // M-1: 속성 설정 (편집 가능)
+        function openAttrSettings() {
+            renderAttrSettings();
+            openModal('modal-attr');
+        }
+
+        function renderAttrSettings() {
+            const content = document.getElementById('attr-settings-content');
+            content.innerHTML = Object.entries(catalogMeta.attributes).map(([key, attr]) => `
+                <div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <input value="${attr.name}" onchange="renameAttribute('${key}', this.value)"
+                                style="font-weight:700;font-size:13px;color:#0f172a;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px;height:26px;width:120px;background:#fff;">
+                            <span style="font-size:10px;color:#94a3b8;font-weight:400">(${key})</span>
+                        </div>
+                        <button onclick="deleteAttribute('${key}')" title="속성 삭제"
+                            style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;height:24px;">삭제</button>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;" id="opts-${key}">
+                        ${Object.entries(attr.options).map(([code, label]) => `
+                            <span style="display:inline-flex;align-items:center;gap:3px;padding:3px 6px 3px 8px;background:#eff4ff;color:#1e40af;border-radius:4px;font-size:11px;font-weight:700;">
+                                ${code}: ${label}
+                                <button onclick="deleteAttrOption('${key}','${code}')" style="background:none;border:none;cursor:pointer;color:#93c5fd;font-size:12px;line-height:1;padding:0 1px;height:auto;">✕</button>
+                            </span>
+                        `).join('')}
+                    </div>
+                    <div style="display:flex;gap:4px;">
+                        <input id="opt-code-${key}" placeholder="코드(예:200)" style="width:90px;height:26px;border:1px solid #e5e7eb;border-radius:4px;padding:0 6px;font-size:12px;background:#fff;">
+                        <input id="opt-label-${key}" placeholder="표시명(예:200T)" style="flex:1;height:26px;border:1px solid #e5e7eb;border-radius:4px;padding:0 6px;font-size:12px;background:#fff;">
+                        <button onclick="addAttrOption('${key}')" style="background:#1e40af;color:#fff;border:none;border-radius:4px;padding:0 10px;font-size:11px;font-weight:700;cursor:pointer;height:26px;">+ 추가</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renameAttribute(key, newName) {
+            if (catalogMeta.attributes[key]) catalogMeta.attributes[key].name = newName;
+        }
+
+        function deleteAttribute(key) {
+            const usedBy = catalogMeta.categories.filter(c => c.attributes.includes(key));
+            if (usedBy.length > 0) {
+                showCatalogToast(`'${catalogMeta.attributes[key].name}' 속성은 ${usedBy.map(c=>c.name).join(', ')} 카테고리에서 사용 중입니다.`, 'error');
+                return;
+            }
+            delete catalogMeta.attributes[key];
+            renderAttrSettings();
+            showCatalogToast('속성이 삭제되었습니다.', 'success');
+        }
+
+        function addAttrOption(key) {
+            const code = document.getElementById('opt-code-' + key).value.trim();
+            const label = document.getElementById('opt-label-' + key).value.trim();
+            if (!code || !label) { showCatalogToast('코드와 표시명을 모두 입력하세요.', 'error'); return; }
+            if (catalogMeta.attributes[key].options[code]) { showCatalogToast('이미 존재하는 코드입니다.', 'error'); return; }
+            catalogMeta.attributes[key].options[code] = label;
+            renderAttrSettings();
+            renderFilters();
+        }
+
+        function deleteAttrOption(key, code) {
+            delete catalogMeta.attributes[key].options[code];
+            renderAttrSettings();
+            renderFilters();
+        }
+
+        function addNewAttribute() {
+            const keyInput = document.getElementById('new-attr-key');
+            const nameInput = document.getElementById('new-attr-name');
+            const key = keyInput.value.trim().toLowerCase().replace(/\s+/g, '_');
+            const name = nameInput.value.trim();
+            if (!key || !name) { showCatalogToast('식별자와 속성명을 입력하세요.', 'error'); return; }
+            if (catalogMeta.attributes[key]) { showCatalogToast('이미 존재하는 식별자입니다.', 'error'); return; }
+            catalogMeta.attributes[key] = { name, options: {} };
+            keyInput.value = '';
+            nameInput.value = '';
+            renderAttrSettings();
+            showCatalogToast('새 속성이 추가되었습니다.', 'success');
+        }
+
+        // M-2: 신규 제품 등록
+        function openNewProduct() {
+            const catSelect = document.getElementById('new-prod-cat');
+            catSelect.innerHTML = catalogMeta.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            catSelect.value = 'CAT-PNL';
+            document.getElementById('new-prod-name').value = '';
+            document.getElementById('new-prod-price').value = '';
+            renderNewProductAttrs();
+            openModal('modal-new-product');
+        }
+
+        function renderNewProductAttrs() {
+            const catId = document.getElementById('new-prod-cat').value;
+            const cat = catalogMeta.categories.find(c => c.id === catId);
+            const container = document.getElementById('new-prod-attrs');
+            container.innerHTML = cat.attributes.map(attrKey => {
+                const attr = catalogMeta.attributes[attrKey];
+                return `
+                    <div>
+                        <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">${attr.name}</label>
+                        <select id="new-attr-${attrKey}" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12.5px;color:#0f172a;background:#fff;">
+                            ${Object.entries(attr.options).map(([code, label]) => `<option value="${code}">${label}</option>`).join('')}
+                        </select>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function saveNewProduct() {
+            const name = document.getElementById('new-prod-name').value.trim();
+            const price = parseInt(document.getElementById('new-prod-price').value) || 0;
+            const catId = document.getElementById('new-prod-cat').value;
+            const cat = catalogMeta.categories.find(c => c.id === catId);
+            if (!name) { alert('제품명을 입력하세요.'); return; }
+            const attrs = {};
+            cat.attributes.forEach(attrKey => {
+                attrs[attrKey] = document.getElementById('new-attr-' + attrKey).value;
+            });
+            products.push({ id: nextProductId++, catId, name, price, attrs });
+            if (currentCatId === catId) renderProducts();
+            document.getElementById('modal-overlay').style.display = 'none';
+            showCatalogToast('신규 제품이 등록되었습니다.', 'success');
+        }
+
+        // M-3: 제품 상세보기
+        function showProductDetail(id) {
+            currentDetailProductId = id;
+            renderProductDetail(false);
+            openModal('modal-product-detail');
+        }
+
+        function renderProductDetail(editMode) {
+            const id = currentDetailProductId;
+            const p = products.find(x => x.id === id);
+            if (!p) return;
+            const cat = catalogMeta.categories.find(c => c.id === p.catId);
+            const sku = generateSKU(cat, p);
+
+            document.getElementById('detail-sku').textContent = sku;
+            document.getElementById('detail-id').textContent = 'PROD-' + p.id.toString().padStart(4, '0');
+            document.getElementById('detail-edit-btn').style.display = editMode ? 'none' : 'inline-flex';
+            document.getElementById('detail-save-btn').style.display = editMode ? 'inline-flex' : 'none';
+            document.getElementById('detail-cancel-btn').style.display = editMode ? 'inline-flex' : 'none';
+
+            if (editMode) {
+                document.getElementById('detail-view').style.display = 'none';
+                const editEl = document.getElementById('detail-edit');
+                editEl.style.display = 'block';
+                // 카테고리 선택
+                const catSel = document.getElementById('edit-prod-cat');
+                catSel.innerHTML = catalogMeta.categories.map(c => `<option value="${c.id}" ${c.id===p.catId?'selected':''}>${c.name}</option>`).join('');
+                document.getElementById('edit-prod-name').value = p.name;
+                document.getElementById('edit-prod-price').value = p.price;
+                renderDetailAttrEdits(p.catId, p.attrs);
+            } else {
+                document.getElementById('detail-view').style.display = 'block';
+                document.getElementById('detail-edit').style.display = 'none';
+                document.getElementById('detail-name').textContent = p.name;
+                document.getElementById('detail-cat').textContent = cat.name;
+                document.getElementById('detail-price').textContent = '₩' + p.price.toLocaleString();
+                document.getElementById('detail-attrs').innerHTML = Object.entries(p.attrs).map(([key, val]) => {
+                    const attr = catalogMeta.attributes[key];
+                    if (!attr) return '';
+                    return `<tr>
+                        <td style="padding:6px 0;color:#64748b;font-size:11px;width:80px;font-weight:600;text-transform:uppercase;letter-spacing:.03em">${attr.name}</td>
+                        <td style="padding:6px 0;font-weight:700;font-size:12px;color:#0f172a">${attr.options[val]||val} <span style="color:#94a3b8;font-size:10px;font-weight:400">(${val})</span></td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        function renderDetailAttrEdits(catId, existingAttrs) {
+            const cat = catalogMeta.categories.find(c => c.id === catId);
+            const container = document.getElementById('edit-prod-attrs');
+            container.innerHTML = cat.attributes.map(attrKey => {
+                const attr = catalogMeta.attributes[attrKey];
+                const curVal = existingAttrs ? (existingAttrs[attrKey] || '') : '';
+                return `<div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">${attr.name}</label>
+                    <select id="edit-attr-${attrKey}" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12.5px;color:#0f172a;background:#fff;">
+                        ${Object.entries(attr.options).map(([code, label]) => `<option value="${code}" ${code===curVal?'selected':''}>${label}</option>`).join('')}
+                    </select>
+                </div>`;
+            }).join('');
+        }
+
+        function saveProductDetail() {
+            const p = products.find(x => x.id === currentDetailProductId);
+            if (!p) return;
+            const catId = document.getElementById('edit-prod-cat').value;
+            const cat = catalogMeta.categories.find(c => c.id === catId);
+            p.name = document.getElementById('edit-prod-name').value.trim() || p.name;
+            p.price = parseInt(document.getElementById('edit-prod-price').value) || p.price;
+            p.catId = catId;
+            p.attrs = {};
+            cat.attributes.forEach(attrKey => {
+                p.attrs[attrKey] = document.getElementById('edit-attr-' + attrKey).value;
+            });
+            renderProducts();
+            renderProductDetail(false);
+            showCatalogToast('제품 정보가 저장되었습니다.', 'success');
+        }
+
+        // 카테고리 추가/편집
+        function openAddCategory() {
+            editingCategoryId = null;
+            document.getElementById('cat-modal-title').textContent = '카테고리 추가';
+            document.getElementById('cat-name').value = '';
+            document.getElementById('cat-code').value = '';
+            renderCatAttrCheckboxes([]);
+            openModal('modal-category');
+        }
+
+        function openEditCategory(id) {
+            editingCategoryId = id;
+            const cat = catalogMeta.categories.find(c => c.id === id);
+            if (!cat) return;
+            document.getElementById('cat-modal-title').textContent = '카테고리 편집';
+            document.getElementById('cat-name').value = cat.name;
+            document.getElementById('cat-code').value = cat.code;
+            renderCatAttrCheckboxes(cat.attributes);
+            openModal('modal-category');
+        }
+
+        function renderCatAttrCheckboxes(selected) {
+            const container = document.getElementById('cat-attr-checks');
+            container.innerHTML = Object.entries(catalogMeta.attributes).map(([key, attr]) => `
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer;padding:4px 0;">
+                    <input type="checkbox" value="${key}" ${selected.includes(key)?'checked':''} style="width:14px;height:14px;">
+                    ${attr.name} <span style="color:#94a3b8;font-weight:400;font-size:10px">(${key})</span>
+                </label>
+            `).join('');
+        }
+
+        function saveCategoryModal() {
+            const name = document.getElementById('cat-name').value.trim();
+            const code = document.getElementById('cat-code').value.trim().toUpperCase();
+            if (!name || !code) { showCatalogToast('이름과 코드를 입력하세요.', 'error'); return; }
+            const attrs = Array.from(document.querySelectorAll('#cat-attr-checks input:checked')).map(el => el.value);
+            if (editingCategoryId) {
+                const cat = catalogMeta.categories.find(c => c.id === editingCategoryId);
+                cat.name = name;
+                cat.code = code;
+                cat.attributes = attrs;
+                cat.sku_rule = ['category_code', ...attrs];
+            } else {
+                const newId = 'CAT-' + code;
+                if (catalogMeta.categories.find(c => c.id === newId)) { showCatalogToast('이미 존재하는 코드입니다.', 'error'); return; }
+                catalogMeta.categories.push({ id: newId, name, code, sku_rule: ['category_code', ...attrs], attributes: attrs });
+                currentCatId = newId;
+            }
+            document.getElementById('modal-overlay').style.display = 'none';
+            renderCategories();
+            if (currentCatId === (editingCategoryId || 'CAT-' + code)) { renderFilters(); renderProducts(); }
+            showCatalogToast(editingCategoryId ? '카테고리가 수정되었습니다.' : '카테고리가 추가되었습니다.', 'success');
+        }
+    </script>
+
+    <!-- 모달 오버레이 -->
+    <div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;" onclick="closeModal(event)">
+
+        <!-- M-1: 속성 설정 -->
+        <div id="modal-attr" style="display:none;background:#fff;border-radius:8px;width:620px;max-height:85vh;overflow-y:auto;padding:24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <h3 style="font-size:15px;font-weight:700;color:#0f172a">속성 설정</h3>
+                <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:18px;line-height:1;height:auto;padding:0;">✕</button>
+            </div>
+            <p style="font-size:12px;color:#64748b;margin-bottom:16px;">속성명·옵션을 편집하거나 새 속성을 추가합니다.</p>
+            <div id="attr-settings-content"></div>
+            <div style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:4px;">
+                <p style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:8px;">새 속성 추가</p>
+                <div style="display:flex;gap:6px;">
+                    <input id="new-attr-key" placeholder="식별자(예:width)" style="width:120px;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12px;background:#fff;">
+                    <input id="new-attr-name" placeholder="속성명(예:폭)" style="flex:1;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12px;background:#fff;">
+                    <button onclick="addNewAttribute()" style="background:#1e40af;color:#fff;border:none;border-radius:5px;padding:0 14px;font-size:12px;font-weight:700;cursor:pointer;height:30px;">+ 속성 추가</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- M-2: 신규 제품 등록 -->
+        <div id="modal-new-product" style="display:none;background:#fff;border-radius:8px;width:480px;padding:24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <h3 style="font-size:15px;font-weight:700;color:#0f172a">신규 제품 등록</h3>
+                <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:18px;line-height:1;height:auto;padding:0;">✕</button>
+            </div>
+            <div style="display:grid;gap:12px;">
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">카테고리</label>
+                    <select id="new-prod-cat" onchange="renderNewProductAttrs()" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12.5px;color:#0f172a;background:#fff;"></select>
+                </div>
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">제품명</label>
+                    <input id="new-prod-name" type="text" placeholder="제품 명칭 입력" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">기본 단가 (원)</label>
+                    <input id="new-prod-price" type="number" placeholder="0" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">속성 값</label>
+                    <div id="new-prod-attrs" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+                <button onclick="closeModal()" style="background:#fff;border:1px solid #e5e7eb;color:#475569;padding:0 16px;height:32px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="saveNewProduct()" style="background:#1e40af;color:#fff;border:none;padding:0 16px;height:32px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;">등록</button>
+            </div>
+        </div>
+
+        <!-- M-3: 제품 상세보기 / 편집 -->
+        <div id="modal-product-detail" style="display:none;background:#fff;border-radius:8px;width:440px;padding:24px;max-height:85vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+                <h3 style="font-size:15px;font-weight:700;color:#0f172a">제품 상세</h3>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <button id="detail-edit-btn" onclick="renderProductDetail(true)" style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #e5e7eb;color:#475569;border-radius:5px;padding:0 10px;font-size:12px;font-weight:600;cursor:pointer;height:28px;"><i data-lucide="pencil" style="width:12px;height:12px;"></i> 편집</button>
+                    <button id="detail-save-btn" onclick="saveProductDetail()" style="display:none;align-items:center;gap:4px;background:#1e40af;border:none;color:#fff;border-radius:5px;padding:0 12px;font-size:12px;font-weight:600;cursor:pointer;height:28px;">저장</button>
+                    <button id="detail-cancel-btn" onclick="renderProductDetail(false)" style="display:none;align-items:center;gap:4px;background:#fff;border:1px solid #e5e7eb;color:#475569;border-radius:5px;padding:0 10px;font-size:12px;font-weight:600;cursor:pointer;height:28px;">취소</button>
+                    <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:18px;line-height:1;height:auto;padding:0;margin-left:4px;">✕</button>
+                </div>
+            </div>
+            <div style="background:#0f172a;border-radius:6px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+                <span id="detail-sku" style="font-family:monospace;font-size:14px;font-weight:700;color:#60a5fa;letter-spacing:-.5px;"></span>
+                <span id="detail-id" style="font-size:10px;color:#475569;font-weight:600;"></span>
+            </div>
+            <!-- 보기 모드 -->
+            <div id="detail-view">
+                <div style="margin-bottom:16px;">
+                    <p id="detail-name" style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px;"></p>
+                    <span id="detail-cat" style="font-size:11px;color:#64748b;font-weight:600;background:#f1f5f9;padding:1px 6px;border-radius:4px;"></span>
+                </div>
+                <div style="border-top:1px solid #e5e7eb;padding-top:14px;margin-bottom:14px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tbody id="detail-attrs"></tbody>
+                    </table>
+                </div>
+                <div style="border-top:1px solid #e5e7eb;padding-top:14px;display:flex;align-items:center;justify-content:space-between;">
+                    <div>
+                        <p style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">기본 단가</p>
+                        <p id="detail-price" style="font-size:16px;font-weight:800;color:#1e40af;"></p>
+                    </div>
+                    <span style="font-size:11px;background:#dcfce7;color:#16a34a;padding:3px 8px;border-radius:4px;font-weight:700;">정상</span>
+                </div>
+            </div>
+            <!-- 편집 모드 -->
+            <div id="detail-edit" style="display:none;">
+                <div style="display:grid;gap:10px;">
+                    <div>
+                        <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">카테고리</label>
+                        <select id="edit-prod-cat" onchange="renderDetailAttrEdits(this.value, null)" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 8px;font-size:12.5px;color:#0f172a;background:#fff;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">제품명</label>
+                        <input id="edit-prod-name" type="text" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">기본 단가 (원)</label>
+                        <input id="edit-prod-price" type="number" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">속성 값</label>
+                        <div id="edit-prod-attrs" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 카테고리 추가/편집 모달 -->
+        <div id="modal-category" style="display:none;background:#fff;border-radius:8px;width:420px;padding:24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <h3 id="cat-modal-title" style="font-size:15px;font-weight:700;color:#0f172a">카테고리 추가</h3>
+                <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:18px;line-height:1;height:auto;padding:0;">✕</button>
+            </div>
+            <div style="display:grid;gap:12px;">
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">카테고리명</label>
+                    <input id="cat-name" type="text" placeholder="예: 냉동 유닛쿨러" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">코드 (SKU 접두어, 영문)</label>
+                    <input id="cat-code" type="text" placeholder="예: UCU" style="width:100%;height:30px;border:1px solid #e5e7eb;border-radius:5px;padding:0 10px;font-size:12.5px;color:#0f172a;background:#fff;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">사용할 속성 (다중 선택)</label>
+                    <div id="cat-attr-checks" style="display:grid;grid-template-columns:1fr 1fr;gap:2px;"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+                <button onclick="closeModal()" style="background:#fff;border:1px solid #e5e7eb;color:#475569;padding:0 16px;height:32px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="saveCategoryModal()" style="background:#1e40af;color:#fff;border:none;padding:0 16px;height:32px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;">저장</button>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

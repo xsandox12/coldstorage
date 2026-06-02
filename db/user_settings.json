@@ -1,0 +1,27 @@
+{
+  "drawing": {
+    "panel_width": 950,
+    "panel_min_width": 220,
+    "door_side_margin": 160
+  },
+  "business": {
+    "vat_rate": 0.1,
+    "currency": "KRW",
+    "company_name": "한남냉동테크(주)"
+  },
+  "company": {
+    "name": "한남냉동테크(주)",
+    "ceo": "김순이",
+    "business_no": "123-45-67890",
+    "phone": "02-123-4567",
+    "fax": "",
+    "email": "",
+    "address": "서울특별시 성동구 왕십리로 123",
+    "bank_info": "농협 351-1156-9539-83 (주)한남냉동테크"
+  },
+  "quotation": {
+    "validity_days": 15,
+    "default_ref": "한남냉동테크(주)",
+    "default_remarks": "본 견적은 도면 데이터를 바탕으로 산출된 가견적입니다.\n현장 여건 및 자재 단가 변동에 따라 최종 금액이 달라질 수 있습니다.\n견적 유효기간은 발행일로부터 15일입니다."
+  }
+}

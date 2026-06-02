@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ColdStorage 3D Viewer</title>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.150.1/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.150.1/examples/jsm/"
+        }
+    }
+    </script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #f1f5f9; }
+        #info { position: absolute; top: 10px; left: 10px; background: rgba(15, 23, 42, 0.8); color: white; padding: 10px 15px; border-radius: 12px; font-size: 11px; font-weight: bold; backdrop-filter: blur(4px); pointer-events: none; }
+        #controls-hint { position: absolute; bottom: 10px; right: 10px; color: #94a3b8; font-size: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="info">3D 미리보기 : <span id="dim-text">데이터 대기 중...</span></div>
+    <div id="controls-hint">마우스 좌클릭: 회전 | 우클릭: 이동 | 휠: 확대/축소</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls, storageBox, baseFrame;
+        const panelThickness = 100;
+
+        init();
+        animate();
+
+        function init() {
+            // 1. Scene & Renderer
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf1f5f9);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // 2. Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 50000);
+            camera.position.set(6000, 4000, 6000);
+
+            // 3. Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // 4. Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            sunLight.position.set(5000, 8000, 2000);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            // 5. Floor Grid
+            const grid = new THREE.GridHelper(20000, 20, 0xcbd5e1, 0xe2e8f0);
+            scene.add(grid);
+
+            // 초기 모델 생성 (기본값)
+            updateStorage(5000, 4000, 2400);
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('message', handleMessage);
+        }
+
+        function handleMessage(event) {
+            const data = event.data;
+            if (data.type === 'UPDATE_3D') {
+                const { width, length, height } = data.specs;
+                updateStorage(width, length, height);
+                document.getElementById('dim-text').innerText = `${width} x ${length} x ${height} (mm)`;
+            }
+        }
+
+        function updateStorage(w, l, h) {
+            if (storageBox) scene.remove(storageBox);
+            if (baseFrame) scene.remove(baseFrame);
+
+            // 1. 저장고 박스 (샌드위치 판넬 질감 모사)
+            const geometry = new THREE.BoxGeometry(w, h, l);
+            
+            // 텍스처 대신 세련된 메탈릭 재질 적용
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff, 
+                roughness: 0.4, 
+                metalness: 0.3,
+                side: THREE.DoubleSide
+            });
+
+            storageBox = new THREE.Mesh(geometry, material);
+            storageBox.position.y = h / 2 + 50; // 기초대 높이만큼 띄움
+            storageBox.castShadow = true;
+            storageBox.receiveShadow = true;
+            scene.add(storageBox);
+
+            // 2. 기초조립대 (Base Frame) 시각화
+            const baseW = w - 50;
+            const baseL = l - 50;
+            const pipeGeom = new THREE.BoxGeometry(baseW, 50, baseL);
+            const pipeMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+            baseFrame = new THREE.Mesh(pipeGeom, pipeMat);
+            baseFrame.position.y = 25; // 지면에서 25mm (높이 50mm의 절반)
+            scene.add(baseFrame);
+
+            // 카메라 타겟 조정
+            controls.target.set(0, h/2, 0);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

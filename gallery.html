@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>현장 사진 갤러리 — ColdStorage Master</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7;--card:#fff;--line:#e5e7eb;--line-2:#eef0f3;
+  --ink:#0f172a;--mute:#64748b;--soft:#94a3b8;
+  --brand:#1e40af;--brand-soft:#eff4ff;
+  --pos:#059669;--warn:#d97706;--neg:#dc2626;--violet:#7c3aed;--teal:#0d9488;
+}
+body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;padding:12px 22px;background:#fff;border-bottom:1px solid var(--line);gap:14px;position:sticky;top:0;z-index:20}
+.crumbs{font-size:11.5px;color:var(--mute);font-weight:500}
+.crumbs strong{color:var(--ink);font-weight:700}
+.title{font-size:17px;font-weight:800;letter-spacing:-.01em;margin-right:auto}
+.title small{font-size:11px;color:var(--mute);font-weight:500;margin-left:6px;letter-spacing:0}
+.btn{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11.5px;font-weight:600;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+.btn:hover{background:#f8fafc}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn.primary:hover{background:#1e3a8a}
+.seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;height:30px}
+.seg button{height:28px;padding:0 11px;background:#fff;border:none;border-right:1px solid var(--line);font-size:11.5px;font-weight:600;color:var(--mute);cursor:pointer;font-family:inherit}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--ink);color:#fff}
+
+/* Layout: sidebar + main */
+.shell{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 55px)}
+.sidebar{background:#fff;border-right:1px solid var(--line);overflow-y:auto;padding:12px 14px}
+.main{overflow-y:auto;padding:14px 20px 32px}
+
+/* Sidebar */
+.side-h{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin:14px 4px 6px}
+.side-h:first-child{margin-top:2px}
+.side-search{position:relative;margin-bottom:4px}
+.side-search input{width:100%;height:30px;padding:0 10px 0 28px;border:1px solid var(--line);background:#fafbfc;border-radius:5px;font-size:11.5px;font-family:inherit;outline:none}
+.side-search input:focus{border-color:var(--brand);background:#fff}
+.side-search svg{position:absolute;top:8px;left:9px;color:var(--soft)}
+
+.tree-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;color:var(--ink);position:relative}
+.tree-item:hover{background:#f8fafc}
+.tree-item.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
+.tree-item .count{margin-left:auto;font-size:10px;color:var(--soft);font-weight:600;font-variant-numeric:tabular-nums}
+.tree-item.on .count{color:var(--brand)}
+.tree-item .thumb{width:28px;height:28px;border-radius:4px;flex-shrink:0;border:1px solid var(--line-2);background-size:cover;background-position:center}
+.tree-item .info{flex:1;min-width:0}
+.tree-item .info .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px}
+.tree-item .info .meta{font-size:10px;color:var(--mute);font-weight:500;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.tag{display:inline-flex;align-items:center;padding:1px 6px;font-size:9.5px;font-weight:700;letter-spacing:.04em;border-radius:3px;text-transform:uppercase}
+.tag.constr{background:#dbeafe;color:#1e40af}
+.tag.as{background:#fee2e2;color:#991b1b}
+.tag.done{background:#dcfce7;color:#166534}
+.tag.insp{background:#f5f3ff;color:#7c3aed}
+
+/* Main header */
+.site-hero{display:grid;grid-template-columns:1fr 280px;gap:14px;margin-bottom:12px}
+.hero-info{background:#fff;border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.hero-title{font-size:16px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.hero-meta{font-size:11.5px;color:var(--mute);margin-top:4px;display:flex;gap:14px;flex-wrap:wrap}
+.hero-meta strong{color:var(--ink);font-weight:700}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line-2)}
+.hero-stat{padding:6px 8px;background:#fafbfc;border-radius:4px}
+.hero-stat .l{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.hero-stat .v{font-size:14px;font-weight:800;letter-spacing:-.01em;margin-top:1px;font-variant-numeric:tabular-nums}
+.hero-stat .v small{font-size:10px;color:var(--soft);font-weight:600;margin-left:2px}
+
+.progress{background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.progress-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.progress-h .l{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.progress-h .v{font-size:18px;font-weight:900;letter-spacing:-.02em;color:var(--brand);font-variant-numeric:tabular-nums}
+.bar{height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;display:flex}
+.bar > div{height:100%}
+.bar .b1{background:#1e40af}.bar .b2{background:#3b82f6}.bar .b3{background:#60a5fa}.bar .b4{background:#93c5fd}
+.phases{display:flex;justify-content:space-between;font-size:9.5px;color:var(--mute);margin-top:4px;font-weight:600}
+.phases span{position:relative}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.toolbar .filter{display:flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;background:#fff;color:var(--ink)}
+.toolbar .filter:hover{background:#f8fafc}
+.toolbar .filter.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.toolbar .filter .dot{width:6px;height:6px;border-radius:50%}
+.toolbar .sep{width:1px;height:18px;background:var(--line)}
+.toolbar input.search{flex:1;height:26px;border:none;outline:none;font-size:12px;background:transparent;padding:0 8px;font-family:inherit}
+.toolbar .count{font-size:10.5px;color:var(--mute);font-weight:600;margin-right:5px}
+
+/* Timeline */
+.tl{position:relative;padding-left:14px}
+.tl::before{content:'';position:absolute;left:5px;top:8px;bottom:0;width:1.5px;background:var(--line)}
+.tl-day{position:relative;margin-bottom:18px}
+.tl-day::before{content:'';position:absolute;left:-13px;top:7px;width:12px;height:12px;border-radius:50%;background:#fff;border:2.5px solid var(--brand);z-index:1}
+.tl-day.warn::before{border-color:var(--warn)}
+.tl-day.done::before{border-color:var(--pos)}
+.tl-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tl-date{font-size:13px;font-weight:800;letter-spacing:-.01em}
+.tl-meta{font-size:10.5px;color:var(--mute);font-weight:600}
+.tl-meta strong{color:var(--ink);font-weight:700}
+
+/* Photo grid */
+.grid-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}
+.photo{position:relative;aspect-ratio:1;border-radius:5px;overflow:hidden;cursor:pointer;background:#e2e8f0;border:1px solid var(--line)}
+.photo:hover{box-shadow:0 4px 14px rgba(15,23,42,.18);transform:translateY(-1px);transition:.18s}
+.photo .img{width:100%;height:100%;position:absolute;inset:0}
+.photo .ph-tag{position:absolute;top:6px;left:6px;font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:rgba(15,23,42,.65);color:#fff;backdrop-filter:blur(8px)}
+.photo .ph-tag.warn{background:rgba(220,38,38,.8)}
+.photo .ph-tag.ok{background:rgba(5,150,105,.8)}
+.photo .ph-time{position:absolute;bottom:6px;left:6px;font-size:9px;font-weight:600;color:#fff;padding:2px 6px;background:rgba(15,23,42,.5);backdrop-filter:blur(8px);border-radius:3px;font-variant-numeric:tabular-nums}
+.photo .ph-icons{position:absolute;bottom:6px;right:6px;display:flex;gap:3px}
+.photo .ph-icons span{width:18px;height:18px;border-radius:3px;background:rgba(15,23,42,.5);backdrop-filter:blur(8px);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.photo .ph-by{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:#1e40af;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+.photo .ph-by.teal{background:#0d9488}
+.photo .ph-by.warn{background:#d97706}
+.photo.large{grid-column:span 2;grid-row:span 2}
+.photo .gps{position:absolute;bottom:6px;left:6px;font-size:8.5px;font-weight:700;color:#fff;padding:2px 5px;background:rgba(15,23,42,.55);backdrop-filter:blur(8px);border-radius:3px;display:flex;align-items:center;gap:3px;font-variant-numeric:tabular-nums}
+.gps::before{content:'';width:4px;height:4px;background:#10b981;border-radius:50%}
+
+/* Compare slider */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--line);background:#000;margin-bottom:8px}
+.compare > div{position:relative;aspect-ratio:16/10}
+.compare-label{position:absolute;top:8px;left:8px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:rgba(15,23,42,.7);padding:3px 8px;border-radius:3px;backdrop-filter:blur(8px);z-index:2}
+
+/* Stylized image (CSS-only construction site renders) */
+.scene{position:absolute;inset:0;overflow:hidden}
+.scene.exterior{background:linear-gradient(180deg,#a4c5e8 0%,#7da6cf 35%,#5c6f8c 60%,#3d4654 100%)}
+.scene.interior-rough{background:linear-gradient(180deg,#67737e 0%,#4d575f 100%)}
+.scene.interior-done{background:linear-gradient(180deg,#dde3e8 0%,#b0bac4 100%)}
+.scene.detail{background:#1f2933}
+.scene.ground{background:linear-gradient(180deg,#52403a 0%,#3a2c28 60%,#2a1f1c 100%)}
+.scene.day{background:linear-gradient(180deg,#cfe2f3 0%,#a0c4e0 50%,#8c9aa6 100%)}
+.scene.dusk{background:linear-gradient(180deg,#f4a35b 0%,#d76a4d 40%,#5a3a52 80%,#1f2235 100%)}
+.scene.snowy{background:linear-gradient(180deg,#e8eef3 0%,#c2cdd6 60%,#7a8895 100%)}
+/* Building shapes */
+.bldg{position:absolute;background:#cbd5e1;border:1px solid rgba(15,23,42,.15)}
+.bldg.b1{left:10%;bottom:15%;width:38%;height:55%;background:linear-gradient(135deg,#e2e8f0,#94a3b8)}
+.bldg.b2{left:42%;bottom:15%;width:32%;height:68%;background:linear-gradient(135deg,#cbd5e1,#64748b)}
+.bldg.b3{left:60%;bottom:15%;width:28%;height:48%;background:linear-gradient(135deg,#94a3b8,#475569)}
+.bldg.cool{position:absolute;left:20%;bottom:18%;width:60%;height:35%;background:linear-gradient(180deg,#e8eef3 0%,#b8c4d0 100%);border-radius:3px;box-shadow:inset 0 8px 18px rgba(15,23,42,.12)}
+.bldg.cool::before{content:'';position:absolute;inset:8% 12% auto 12%;height:60%;background:repeating-linear-gradient(0deg,rgba(15,23,42,.05) 0 12px,transparent 12px 14px)}
+.door-shape{position:absolute;left:42%;bottom:18%;width:18%;height:35%;background:linear-gradient(180deg,#475569,#1f2937);border-radius:1px;border:1.5px solid rgba(15,23,42,.4)}
+.door-shape::after{content:'';position:absolute;top:50%;right:8%;width:8%;height:14px;background:#94a3b8;border-radius:1px}
+.panel-wall{position:absolute;inset:25% 12% 18% 12%;background:repeating-linear-gradient(90deg,#cbd5e1 0,#cbd5e1 18%,#94a3b8 18%,#94a3b8 18.5%,#cbd5e1 18.5%,#cbd5e1 36%,#94a3b8 36%,#94a3b8 36.5%);border:1.5px solid rgba(15,23,42,.2)}
+.frame-bar{position:absolute;background:#374151;box-shadow:0 1px 0 rgba(0,0,0,.4)}
+.unit-cool{position:absolute;left:55%;top:18%;width:30%;height:18%;background:linear-gradient(180deg,#dbeafe,#94a3b8);border:2px solid #475569;border-radius:2px}
+.unit-cool::before{content:'';position:absolute;top:25%;left:10%;right:10%;height:50%;background:repeating-linear-gradient(0deg,rgba(15,23,42,.15) 0 3px,transparent 3px 6px)}
+.pipe{position:absolute;background:#cbd5e1;border:1px solid rgba(15,23,42,.3)}
+.cone{position:absolute;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:18px solid #f59e0b;filter:drop-shadow(0 1px 0 rgba(0,0,0,.3))}
+.cone::after{content:'';position:absolute;top:6px;left:-7px;width:14px;height:2px;background:#fff}
+.sky-grad{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,23,42,0) 0%,rgba(15,23,42,.35) 100%)}
+.crane{position:absolute;left:5%;top:0;bottom:0;width:6%}
+.crane .vert{position:absolute;left:30%;top:0;bottom:0;width:14%;background:#fbbf24}
+.crane .arm{position:absolute;top:10%;left:30%;width:120%;height:5px;background:#fbbf24}
+.crane .cable{position:absolute;top:10%;right:0;width:1.5px;height:55%;background:#1f2937}
+.crane .hook{position:absolute;top:62%;right:-4px;width:10px;height:10px;background:#1f2937;border-radius:1px}
+
+.worker{position:absolute;width:18px;height:42px}
+.worker .helmet{position:absolute;top:0;left:3px;width:12px;height:9px;background:#f59e0b;border-radius:6px 6px 2px 2px;border:1px solid rgba(0,0,0,.3)}
+.worker .body{position:absolute;top:9px;left:2px;width:14px;height:18px;background:#1e40af;border-radius:2px}
+.worker .legs{position:absolute;top:27px;left:4px;width:10px;height:14px;background:#0f172a}
+.worker.w2{left:62%;bottom:22%}
+.worker.w3{left:35%;bottom:25%}
+
+.ice{position:absolute;top:8%;left:8%;width:84%;height:50%;background:radial-gradient(ellipse at 30% 40%,#fff 0%,#dbeafe 30%,#bfdbfe 60%,#93c5fd 100%);opacity:.85;border-radius:50%/40%;filter:blur(.5px)}
+.dial{position:absolute;left:38%;top:35%;width:24%;aspect-ratio:1;background:radial-gradient(circle at center,#fff 30%,#dbeafe 60%,#1e40af 100%);border-radius:50%;border:3px solid #475569}
+.dial::before{content:'';position:absolute;top:50%;left:50%;width:40%;height:2px;background:#dc2626;transform-origin:left;transform:translateY(-50%) rotate(45deg)}
+.gauge-grid{position:absolute;inset:0;background:repeating-conic-gradient(from 0deg,transparent 0deg 28deg,rgba(15,23,42,.2) 28deg 30deg);border-radius:50%}
+
+.drainpipe{position:absolute;left:30%;bottom:15%;width:14%;height:60%;background:linear-gradient(90deg,#94a3b8,#cbd5e1,#94a3b8);border:1px solid rgba(15,23,42,.3);border-radius:3px}
+.drainpipe::after{content:'';position:absolute;bottom:0;left:-20%;right:-20%;height:14%;background:#475569;border-radius:2px}
+
+.tag-overlay{position:absolute;background:rgba(255,255,255,.95);border:1.5px solid #dc2626;border-radius:3px;padding:2px 6px;font-size:8px;font-weight:800;color:#991b1b;letter-spacing:.04em;text-transform:uppercase;backdrop-filter:blur(6px)}
+
+/* Lightbox */
+.lightbox{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:50;display:flex;flex-direction:column;backdrop-filter:blur(16px)}
+.lb-bar{height:54px;display:flex;align-items:center;padding:0 18px;gap:12px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(15,23,42,.6);color:#fff}
+.lb-bar .lb-title{font-size:13.5px;font-weight:700;letter-spacing:-.01em}
+.lb-bar .lb-meta{font-size:11px;color:#94a3b8}
+.lb-bar .lb-meta strong{color:#cbd5e1;font-weight:600}
+.lb-bar .x{margin-left:auto;width:32px;height:32px;border:1px solid rgba(255,255,255,.15);border-radius:5px;background:transparent;color:#fff;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.lb-bar .btn-dark{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#fff}
+.lb-bar .btn-dark:hover{background:rgba(255,255,255,.15)}
+
+.lb-body{flex:1;display:grid;grid-template-columns:1fr 320px;overflow:hidden}
+.lb-stage{position:relative;display:flex;align-items:center;justify-content:center;padding:20px}
+.lb-stage .nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+.lb-stage .nav:hover{background:rgba(255,255,255,.18)}
+.lb-stage .nav.l{left:18px}.lb-stage .nav.r{right:18px}
+.lb-main{aspect-ratio:4/3;max-height:100%;max-width:100%;border-radius:6px;overflow:hidden;position:relative;box-shadow:0 18px 60px rgba(0,0,0,.5);width:min(78%,1200px)}
+.lb-main .ph-tag{font-size:11px;padding:4px 10px}
+.lb-main .gps{font-size:11px;padding:4px 8px}
+.lb-counter{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.7);color:#fff;padding:5px 12px;border-radius:99px;font-size:11px;font-weight:600;backdrop-filter:blur(8px)}
+
+.lb-side{background:#1e293b;color:#cbd5e1;border-left:1px solid rgba(255,255,255,.08);overflow-y:auto;padding:18px}
+.lb-side h3{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
+.lb-meta-row{display:grid;grid-template-columns:80px 1fr;gap:6px;padding:4px 0;font-size:11.5px}
+.lb-meta-row .k{color:#94a3b8;font-weight:500}
+.lb-meta-row .v{color:#e2e8f0;font-weight:600}
+.lb-section{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.08)}
+.lb-section:last-child{border:none}
+.lb-tag{display:inline-flex;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.04em;border-radius:3px;text-transform:uppercase;margin:2px 3px 2px 0}
+.lb-tag.brand{background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.lb-tag.warn{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.lb-tag.pos{background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.lb-comment{padding:8px 10px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:6px;font-size:11.5px;color:#cbd5e1;line-height:1.5}
+.lb-comment .head{display:flex;justify-content:space-between;font-size:10.5px;color:#94a3b8;margin-bottom:3px}
+.lb-comment .head strong{color:#e2e8f0;font-weight:700}
+.lb-comment-input{display:flex;gap:6px;margin-top:8px}
+.lb-comment-input input{flex:1;height:30px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;border-radius:5px;padding:0 10px;font-size:11.5px;outline:none;font-family:inherit}
+.lb-comment-input input::placeholder{color:#64748b}
+.lb-comment-input button{height:30px;padding:0 12px;background:#3b82f6;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="crumbs"><strong>현장</strong> · 사진 갤러리</div>
+  <div class="title">동해수산 — 강릉 1호기 <small>2026.04.18 시공 시작 · 진행률 78%</small></div>
+  <div class="seg">
+    <button class="on">현장별</button>
+    <button>일자별</button>
+    <button>공정별</button>
+    <button>지도</button>
+  </div>
+  <button class="btn">📋 보고서</button>
+  <button class="btn primary">＋ 사진 업로드</button>
+</div>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="side-h">검색</div>
+    <div class="side-search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="고객·현장·태그 검색"/>
+    </div>
+
+    <div class="side-h">현재 진행 (4)</div>
+
+    <div class="tree-item on">
+      <div class="thumb" style="background:linear-gradient(135deg,#7da6cf,#3d4654)"></div>
+      <div class="info">
+        <div class="nm">동해수산 강릉 1호기</div>
+        <div class="meta">강릉 · 5개 공정 · 142장</div>
+      </div>
+      <span class="count">142</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#cbd5e1,#475569)"></div>
+      <div class="info">
+        <div class="nm">푸드원 유통 본사</div>
+        <div class="meta">오산 · 시공 · 88장</div>
+      </div>
+      <span class="count">88</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#a4c5e8,#5c6f8c)"></div>
+      <div class="info">
+        <div class="nm">한라농산 제주센터</div>
+        <div class="meta">제주 · 60% · 62장</div>
+      </div>
+      <span class="count">62</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#e2e8f0,#94a3b8)"></div>
+      <div class="info">
+        <div class="nm">신성냉장 안성지점</div>
+        <div class="meta">안성 · 95% · 124장</div>
+      </div>
+      <span class="count">124</span>
+    </div>
+
+    <div class="side-h">A/S 활성 (3)</div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#67737e,#1f2933)"></div>
+      <div class="info">
+        <div class="nm">청정수산 여수</div>
+        <div class="meta"><span class="tag as">긴급</span> 어제</div>
+      </div>
+      <span class="count">12</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#5c6f8c,#3d4654)"></div>
+      <div class="info">
+        <div class="nm">대구식품 본사</div>
+        <div class="meta"><span class="tag as">A/S</span> 3일 전</div>
+      </div>
+      <span class="count">8</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#94a3b8,#475569)"></div>
+      <div class="info">
+        <div class="nm">서울식품 강서</div>
+        <div class="meta"><span class="tag insp">점검</span> 5일 전</div>
+      </div>
+      <span class="count">6</span>
+    </div>
+
+    <div class="side-h">최근 완료 (2)</div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#cbd5e1,#64748b)"></div>
+      <div class="info">
+        <div class="nm">양평종합주방</div>
+        <div class="meta"><span class="tag done">완료</span> 4.28</div>
+      </div>
+      <span class="count">94</span>
+    </div>
+    <div class="tree-item">
+      <div class="thumb" style="background:linear-gradient(135deg,#a4c5e8,#7da6cf)"></div>
+      <div class="info">
+        <div class="nm">신성냉장 본사</div>
+        <div class="meta"><span class="tag done">완료</span> 4.15</div>
+      </div>
+      <span class="count">156</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Hero -->
+    <div class="site-hero">
+      <div class="hero-info">
+        <div class="hero-title">
+          <span style="display:inline-block;width:8px;height:8px;background:var(--brand);border-radius:50%"></span>
+          동해수산 강릉 1호기 — 냉동 5.5평
+          <span class="tag constr">시공중</span>
+        </div>
+        <div class="hero-meta">
+          <span>📍 <strong>강원 강릉시 해안로 456</strong></span>
+          <span>👤 담당 <strong>김재훈 차장</strong></span>
+          <span>👷 소장 <strong>박상호</strong></span>
+          <span>📅 04.18 — 05.08 (예정)</span>
+          <span>💰 견적 <strong>28.5 M ₩</strong></span>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat"><div class="l">총 사진</div><div class="v">142<small>장</small></div></div>
+          <div class="hero-stat"><div class="l">참여 인원</div><div class="v">5<small>명</small></div></div>
+          <div class="hero-stat"><div class="l">경과일</div><div class="v">14<small>일</small></div></div>
+          <div class="hero-stat"><div class="l">잔여</div><div class="v">6<small>일</small></div></div>
+        </div>
+      </div>
+      <div class="progress">
+        <div class="progress-h">
+          <span class="l">공정 진행률</span>
+          <span class="v">78%</span>
+        </div>
+        <div class="bar">
+          <div class="b1" style="width:20%"></div>
+          <div class="b2" style="width:25%"></div>
+          <div class="b3" style="width:18%"></div>
+          <div class="b4" style="width:15%"></div>
+          <div style="width:22%;background:#f1f5f9"></div>
+        </div>
+        <div class="phases">
+          <span>기초</span><span>판넬</span><span>도어</span><span>냉동기</span><span>마감</span>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--mute)">
+          <span style="font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:9.5px">현재</span>
+          <span style="color:var(--ink);font-weight:700">냉동기 · 배관</span>
+          <span style="margin-left:auto;color:var(--pos);font-weight:700;font-variant-numeric:tabular-nums">+2일 단축</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <span class="count">필터:</span>
+      <button class="filter on"><span class="dot" style="background:#fff"></span>전체 142</button>
+      <button class="filter"><span class="dot" style="background:#1e40af"></span>기초 18</button>
+      <button class="filter"><span class="dot" style="background:#3b82f6"></span>판넬 42</button>
+      <button class="filter"><span class="dot" style="background:#60a5fa"></span>도어 14</button>
+      <button class="filter"><span class="dot" style="background:#0d9488"></span>냉동기 32</button>
+      <button class="filter"><span class="dot" style="background:#d97706"></span>전기 16</button>
+      <button class="filter"><span class="dot" style="background:#dc2626"></span>이슈 4</button>
+      <div class="sep"></div>
+      <input class="search" placeholder="태그·코멘트 검색"/>
+      <div class="sep"></div>
+      <button class="btn" style="height:26px">📅 4.18 — 5.08</button>
+      <button class="btn" style="height:26px">👤 전체 인원</button>
+      <button class="btn" style="height:26px">⊞ 격자</button>
+    </div>
+
+    <!-- Compare (before/after of one room) -->
+    <div class="card" style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <div style="font-size:12.5px;font-weight:800;letter-spacing:-.01em">시공 전/후 비교 — 동일 앵글</div>
+          <div style="font-size:10.5px;color:var(--mute);margin-top:1px">현장 입구 동측 · 4월 18일 vs 5월 8일</div>
+        </div>
+        <div class="seg" style="height:26px">
+          <button class="on" style="height:24px;padding:0 10px;font-size:10.5px">2열 비교</button>
+          <button style="height:24px;padding:0 10px;font-size:10.5px">슬라이더</button>
+          <button style="height:24px;padding:0 10px;font-size:10.5px">오버레이</button>
+        </div>
+      </div>
+      <div class="compare">
+        <div>
+          <span class="compare-label">BEFORE · 04.18</span>
+          <div class="scene ground">
+            <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0 30px,transparent 30px 60px)"></div>
+            <div class="sky-grad"></div>
+            <div class="cone" style="left:20%;bottom:18%"></div>
+            <div class="cone" style="left:32%;bottom:14%"></div>
+            <div class="cone" style="left:70%;bottom:20%"></div>
+            <div class="worker" style="left:42%;bottom:18%"></div>
+            <div class="tag-overlay" style="top:30%;left:50%">측량 위치</div>
+          </div>
+        </div>
+        <div>
+          <span class="compare-label">AFTER · 05.08</span>
+          <div class="scene exterior">
+            <div class="crane"><div class="vert"></div><div class="arm"></div><div class="cable"></div><div class="hook"></div></div>
+            <div class="bldg cool"></div>
+            <div class="door-shape"></div>
+            <div class="worker" style="left:25%;bottom:18%"></div>
+            <div class="worker" style="left:75%;bottom:18%"></div>
+            <div class="unit-cool" style="left:62%;top:15%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timeline by day -->
+    <div class="tl">
+
+      <!-- DAY 1 -->
+      <div class="tl-day done">
+        <div class="tl-head">
+          <span class="tl-date">2026.05.07 (수)</span>
+          <span class="tag pos" style="background:#dcfce7;color:#166534">DAY 13</span>
+          <span class="tl-meta"><strong>22장</strong> · 박상호 외 3명 · 19℃ · 맑음</span>
+          <span class="tl-meta" style="margin-left:auto">📍 38.207, 128.591</span>
+        </div>
+        <div class="grid-photos">
+
+          <div class="photo large" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-done">
+                <div class="panel-wall"></div>
+                <div class="door-shape" style="left:75%;bottom:14%;width:14%;height:42%"></div>
+                <div class="unit-cool" style="left:25%;top:8%;width:40%;height:14%"></div>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:25%;background:linear-gradient(180deg,#5a6671,#3a4450)"></div>
+                <div style="position:absolute;left:8%;bottom:14%;width:14%;height:6%;background:#1f2937;border-radius:1px"></div>
+                <div class="tag-overlay" style="top:42%;left:32%">검수 완료</div>
+              </div>
+            </div>
+            <span class="ph-tag ok">시운전 OK</span>
+            <span class="ph-by teal">박</span>
+            <span class="ph-time">10:42</span>
+            <div class="ph-icons"><span>📍</span><span>💬3</span></div>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene detail">
+                <div class="dial"><div class="gauge-grid"></div></div>
+                <div style="position:absolute;top:8%;right:8%;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:3px 7px;border-radius:3px;font-variant-numeric:tabular-nums">−24.3℃</div>
+                <div style="position:absolute;bottom:8%;left:8%;font-size:8px;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;font-weight:700">SET POINT −25℃</div>
+              </div>
+            </div>
+            <span class="ph-tag ok">풀다운 ✓</span>
+            <span class="ph-time">11:18</span>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene exterior">
+                <div class="bldg cool"></div>
+                <div class="door-shape"></div>
+                <div class="worker" style="left:18%;bottom:18%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">외관</span>
+            <span class="ph-by">김</span>
+            <span class="ph-time">14:02</span>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="panel-wall" style="inset:30% 8% 20% 8%"></div>
+                <div style="position:absolute;top:12%;left:35%;width:30%;height:14%;background:linear-gradient(180deg,#475569,#1f2937);border-radius:2px;border:2px solid #cbd5e1"></div>
+                <div class="pipe" style="left:25%;top:30%;width:50%;height:3%;background:#cbd5e1"></div>
+                <div class="pipe" style="left:25%;top:36%;width:50%;height:3%;background:#475569"></div>
+              </div>
+            </div>
+            <span class="ph-tag">배관 마감</span>
+            <span class="ph-time">15:24</span>
+            <div class="ph-icons"><span>💬1</span></div>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene detail">
+                <div style="position:absolute;inset:0;background:radial-gradient(circle at 40% 50%,#fff 0%,#dbeafe 20%,#94a3b8 50%,#1f2937 100%)"></div>
+                <div style="position:absolute;top:42%;left:42%;font-size:18px;color:#1e40af;font-weight:900;font-variant-numeric:tabular-nums">3.2A</div>
+                <div style="position:absolute;bottom:8%;left:8%;font-size:8px;color:#94a3b8;font-weight:700;letter-spacing:.04em;text-transform:uppercase">유닛 전류 측정</div>
+              </div>
+            </div>
+            <span class="ph-tag ok">정격</span>
+            <span class="ph-time">16:10</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- DAY 2 (with issue) -->
+      <div class="tl-day warn">
+        <div class="tl-head">
+          <span class="tl-date">2026.05.05 (월)</span>
+          <span class="tag warn" style="background:#fef3c7;color:#92400e">DAY 11 · 이슈 1건</span>
+          <span class="tl-meta"><strong>18장</strong> · 박상호 외 3명 · 17℃ · 흐림</span>
+        </div>
+        <div class="grid-photos">
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="unit-cool" style="left:30%;top:18%;width:42%;height:22%"></div>
+                <div class="pipe" style="left:45%;top:40%;width:8%;height:30%"></div>
+                <div class="pipe" style="left:60%;top:42%;width:5%;height:28%"></div>
+                <div class="tag-overlay" style="top:30%;left:42%;border-color:#d97706;color:#92400e">간격 협소 ⚠</div>
+              </div>
+            </div>
+            <span class="ph-tag warn">이슈</span>
+            <span class="ph-by warn">정</span>
+            <span class="ph-time">09:24</span>
+            <div class="ph-icons"><span>⚠</span><span>💬5</span></div>
+          </div>
+
+          <div class="photo large" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="unit-cool" style="left:18%;top:8%;width:64%;height:35%"></div>
+                <div class="pipe" style="left:40%;top:42%;width:6%;height:35%"></div>
+                <div class="pipe" style="left:52%;top:42%;width:6%;height:35%"></div>
+                <div class="frame-bar" style="left:5%;bottom:18%;right:5%;height:4px"></div>
+                <div class="worker" style="left:62%;bottom:20%"></div>
+                <div class="worker" style="left:30%;bottom:22%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">냉동기 설치</span>
+            <span class="ph-by">박</span>
+            <span class="ph-time">14:30</span>
+            <div class="ph-icons"><span>📍</span><span>💬2</span></div>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene detail">
+                <div class="pipe" style="left:10%;top:20%;width:80%;height:6%;background:#fff;border:1px solid #475569"></div>
+                <div class="pipe" style="left:10%;top:32%;width:80%;height:5%;background:#fbbf24;border:1px solid #92400e"></div>
+                <div class="pipe" style="left:10%;top:44%;width:80%;height:5%;background:#3b82f6;border:1px solid #1e40af"></div>
+                <div style="position:absolute;bottom:14%;left:10%;right:10%;display:flex;justify-content:space-between;font-size:8px;color:#cbd5e1;font-weight:700;letter-spacing:.04em">
+                  <span>5/8" 흡입</span><span>1/4" 액관</span><span>제상선</span>
+                </div>
+              </div>
+            </div>
+            <span class="ph-tag">배관 라벨</span>
+            <span class="ph-time">15:48</span>
+          </div>
+
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div style="position:absolute;left:25%;top:18%;width:50%;height:55%;background:#475569;border:2px solid #cbd5e1"></div>
+                <div style="position:absolute;left:30%;top:25%;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:40%">
+                  <div style="height:8px;background:#10b981;border-radius:1px"></div>
+                  <div style="height:8px;background:#3b82f6;border-radius:1px"></div>
+                  <div style="height:8px;background:#fbbf24;border-radius:1px"></div>
+                  <div style="height:8px;background:#dc2626;border-radius:1px"></div>
+                  <div style="height:8px;background:#fff;border-radius:1px"></div>
+                  <div style="height:8px;background:#94a3b8;border-radius:1px"></div>
+                </div>
+              </div>
+            </div>
+            <span class="ph-tag">전기 패널</span>
+            <span class="ph-time">16:22</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- DAY 3 -->
+      <div class="tl-day">
+        <div class="tl-head">
+          <span class="tl-date">2026.04.30 (수)</span>
+          <span class="tag" style="background:var(--brand-soft);color:var(--brand);padding:1px 6px;font-size:9.5px;border-radius:3px;font-weight:700;letter-spacing:.04em;text-transform:uppercase">DAY 6</span>
+          <span class="tl-meta"><strong>32장</strong> · 박상호 외 4명 · 21℃ · 맑음</span>
+        </div>
+        <div class="grid-photos">
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="panel-wall"></div>
+                <div class="worker" style="left:25%;bottom:22%"></div>
+                <div class="worker" style="left:60%;bottom:22%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">판넬 시공</span>
+            <span class="ph-time">09:14</span>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="panel-wall" style="inset:18% 8% 32% 8%"></div>
+                <div class="door-shape" style="left:50%;bottom:24%;width:18%;height:42%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">도어 설치</span>
+            <span class="ph-time">11:48</span>
+            <div class="ph-icons"><span>💬1</span></div>
+          </div>
+          <div class="photo large" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="panel-wall" style="inset:8% 4% 18% 4%"></div>
+                <div class="door-shape" style="left:42%;bottom:14%;width:18%;height:48%"></div>
+                <div class="frame-bar" style="left:4%;bottom:8%;right:4%;height:4px"></div>
+                <div class="worker" style="left:18%;bottom:14%"></div>
+                <div class="worker" style="left:70%;bottom:14%"></div>
+                <div class="worker" style="left:48%;bottom:50%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">벽체 완성</span>
+            <span class="ph-by teal">박</span>
+            <span class="ph-time">14:02</span>
+            <div class="ph-icons"><span>📍</span><span>💬4</span></div>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene detail">
+                <div style="position:absolute;top:20%;left:20%;right:20%;bottom:30%;background:linear-gradient(135deg,#cbd5e1,#94a3b8);border:2px solid #475569;border-radius:2px"></div>
+                <div style="position:absolute;top:32%;left:32%;right:32%;bottom:42%;background:repeating-linear-gradient(45deg,#475569 0 4px,#1f2937 4px 8px)"></div>
+              </div>
+            </div>
+            <span class="ph-tag">힌지 디테일</span>
+            <span class="ph-time">15:30</span>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div style="position:absolute;inset:10% 10% 15% 10%;background:repeating-linear-gradient(0deg,#475569 0 18px,#374151 18px 20px)"></div>
+                <div style="position:absolute;top:20%;left:25%;right:25%;height:25%;background:linear-gradient(180deg,#cbd5e1,#94a3b8);border-radius:1px;border:1.5px solid #475569"></div>
+              </div>
+            </div>
+            <span class="ph-tag">천정 마감</span>
+            <span class="ph-time">16:14</span>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene interior-rough">
+                <div class="drainpipe"></div>
+                <div style="position:absolute;left:60%;bottom:15%;width:14%;height:60%;background:linear-gradient(90deg,#94a3b8,#cbd5e1,#94a3b8);border:1px solid #475569;border-radius:3px"></div>
+                <div style="position:absolute;inset:80% 0 0 0;background:linear-gradient(180deg,#3a4450,#1f2933)"></div>
+              </div>
+            </div>
+            <span class="ph-tag">배수구</span>
+            <span class="ph-time">17:02</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- DAY 4 -->
+      <div class="tl-day">
+        <div class="tl-head">
+          <span class="tl-date">2026.04.22 (금)</span>
+          <span class="tag" style="background:var(--brand-soft);color:var(--brand);padding:1px 6px;font-size:9.5px;border-radius:3px;font-weight:700;letter-spacing:.04em;text-transform:uppercase">DAY 1 · 자재 입고</span>
+          <span class="tl-meta"><strong>28장</strong> · 박상호 외 3명 · 14℃ · 맑음</span>
+        </div>
+        <div class="grid-photos">
+          <div class="photo large" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene day">
+                <div style="position:absolute;left:10%;bottom:24%;width:30%;height:30%;background:linear-gradient(180deg,#5a3a30,#3a2218);border:2px solid #2a1810;border-radius:2px"></div>
+                <div style="position:absolute;left:10%;bottom:54%;width:30%;height:12%;background:linear-gradient(180deg,#7a4a3a,#5a3020);border:2px solid #2a1810"></div>
+                <div style="position:absolute;left:46%;bottom:24%;width:42%;height:42%">
+                  <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#e2e8f0 0 12%,#cbd5e1 12% 12.5%,#e2e8f0 12.5% 25%);border:2px solid #475569"></div>
+                </div>
+                <div class="cone" style="left:48%;bottom:18%"></div>
+                <div class="worker" style="left:35%;bottom:18%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">트럭 도착</span>
+            <span class="ph-by">박</span>
+            <span class="ph-time">08:24</span>
+            <div class="ph-icons"><span>📍</span></div>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene day">
+                <div style="position:absolute;left:8%;bottom:20%;right:8%;height:48%;background:repeating-linear-gradient(90deg,#cbd5e1 0 8%,#94a3b8 8% 8.5%);border:2px solid #475569"></div>
+              </div>
+            </div>
+            <span class="ph-tag">판넬 32장</span>
+            <span class="ph-time">09:48</span>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene day">
+                <div style="position:absolute;left:30%;bottom:30%;right:30%;top:35%;background:linear-gradient(135deg,#cbd5e1,#94a3b8);border:2px solid #475569;border-radius:2px"></div>
+                <div class="frame-bar" style="left:32%;bottom:36%;right:32%;height:3px"></div>
+                <div class="frame-bar" style="left:32%;bottom:48%;right:32%;height:3px"></div>
+              </div>
+            </div>
+            <span class="ph-tag">유닛쿨러</span>
+            <span class="ph-time">10:42</span>
+          </div>
+          <div class="photo" onclick="openLB(this)">
+            <div class="img">
+              <div class="scene ground">
+                <div class="cone" style="left:15%;bottom:20%"></div>
+                <div class="cone" style="left:30%;bottom:30%"></div>
+                <div class="cone" style="left:65%;bottom:25%"></div>
+                <div class="cone" style="left:80%;bottom:15%"></div>
+                <div style="position:absolute;left:40%;bottom:25%;width:30%;height:18%;background:rgba(15,23,42,.3);border-radius:50%;filter:blur(3px)"></div>
+                <div class="worker" style="left:48%;bottom:30%"></div>
+              </div>
+            </div>
+            <span class="ph-tag">현장 정리</span>
+            <span class="ph-by warn">정</span>
+            <span class="ph-time">17:30</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="text-align:center;padding:24px 0 12px">
+      <button class="btn">▼ 이전 사진 더 보기 (98장 남음)</button>
+    </div>
+  </main>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" style="display:none">
+  <div class="lb-bar">
+    <div>
+      <div class="lb-title" id="lbTitle">DSC_05_142.jpg — 시운전 완료</div>
+      <div class="lb-meta">동해수산 · 강릉 1호기 · <strong>2026.05.07 10:42</strong> · 박상호 · 24.2 MB</div>
+    </div>
+    <button class="btn btn-dark">⬇</button>
+    <button class="btn btn-dark">📋 보고서에 추가</button>
+    <button class="btn btn-dark">🔗 공유</button>
+    <button class="btn btn-dark">⋯</button>
+    <button class="x" onclick="closeLB()">✕</button>
+  </div>
+  <div class="lb-body">
+    <div class="lb-stage">
+      <button class="nav l">‹</button>
+      <div class="lb-main">
+        <div class="scene interior-done" style="width:100%;height:100%;position:relative">
+          <div class="panel-wall"></div>
+          <div class="door-shape" style="left:75%;bottom:14%;width:14%;height:42%"></div>
+          <div class="unit-cool" style="left:25%;top:8%;width:40%;height:14%"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;height:25%;background:linear-gradient(180deg,#5a6671,#3a4450)"></div>
+          <div class="tag-overlay" style="top:42%;left:32%">검수 완료</div>
+        </div>
+        <span class="ph-tag ok" style="font-size:11px;padding:4px 10px">시운전 OK</span>
+        <span class="gps" style="font-size:11px;padding:4px 8px">38.207, 128.591 · ±3m</span>
+      </div>
+      <button class="nav r">›</button>
+      <div class="lb-counter">85 / 142</div>
+    </div>
+
+    <aside class="lb-side">
+      <div class="lb-section">
+        <h3>촬영 정보</h3>
+        <div class="lb-meta-row"><span class="k">현장</span><span class="v">동해수산 강릉 1호기</span></div>
+        <div class="lb-meta-row"><span class="k">공정</span><span class="v">시운전 · 인계 준비</span></div>
+        <div class="lb-meta-row"><span class="k">촬영자</span><span class="v">박상호 (소장)</span></div>
+        <div class="lb-meta-row"><span class="k">디바이스</span><span class="v">iPhone 15 Pro</span></div>
+        <div class="lb-meta-row"><span class="k">GPS</span><span class="v">38.207, 128.591</span></div>
+        <div class="lb-meta-row"><span class="k">고도</span><span class="v">8m</span></div>
+        <div class="lb-meta-row"><span class="k">해상도</span><span class="v">4032 × 3024</span></div>
+      </div>
+
+      <div class="lb-section">
+        <h3>태그</h3>
+        <span class="lb-tag pos">시운전</span>
+        <span class="lb-tag brand">검수 완료</span>
+        <span class="lb-tag brand">유닛쿨러</span>
+        <span class="lb-tag brand">−25℃</span>
+        <span class="lb-tag warn">+ 태그 추가</span>
+      </div>
+
+      <div class="lb-section">
+        <h3>코멘트 (3)</h3>
+        <div class="lb-comment">
+          <div class="head"><strong>김재훈 차장</strong><span>10분 전</span></div>
+          풀다운 시간 2시간 12분 → 사양 대비 양호. 고객 인계 시 첨부.
+        </div>
+        <div class="lb-comment">
+          <div class="head"><strong>박상호 소장</strong><span>2시간 전</span></div>
+          전류 3.2A 정격 ±5% 이내. 누설 없음 확인.
+        </div>
+        <div class="lb-comment">
+          <div class="head"><strong>정대호 기사</strong><span>3시간 전</span></div>
+          제상 사이클 1차 통과. 내일 인수 인계 가능.
+        </div>
+        <div class="lb-comment-input">
+          <input placeholder="코멘트 작성..."/>
+          <button>등록</button>
+        </div>
+      </div>
+
+      <div class="lb-section">
+        <h3>연결된 작업</h3>
+        <div class="lb-meta-row"><span class="k">견적</span><span class="v" style="color:#93c5fd">Q-2026-0418-005 →</span></div>
+        <div class="lb-meta-row"><span class="k">계약</span><span class="v" style="color:#93c5fd">CT-2026-018 →</span></div>
+        <div class="lb-meta-row"><span class="k">자재</span><span class="v" style="color:#93c5fd">유닛쿨러 DCO-30 →</span></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+function openLB(el){
+  document.getElementById('lightbox').style.display='flex';
+}
+function closeLB(){
+  document.getElementById('lightbox').style.display='none';
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeLB();
+});
+</script>
+</body>
+</html>

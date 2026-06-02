@@ -1,0 +1,52 @@
+[
+  {
+    "id": "AS-001",
+    "proj_id": "PROJ-2026-001",
+    "cust_id": "CUST-0001",
+    "type": "EMERGENCY",
+    "issue": "유닛 쿨러 제상 불량 조치",
+    "desc": "센서 교체 및 냉매 보충 완료",
+    "status": "RESOLVED",
+    "date": "2026-02-14"
+  },
+  {
+    "id": "AS-002",
+    "proj_id": "PROJ-2026-002",
+    "cust_id": "CUST-0001",
+    "type": "NORMAL",
+    "issue": "평택 저온창고 시공 시작",
+    "desc": "기초조립대 및 판넬 입고",
+    "status": "COMPLETED",
+    "date": "2026-02-05"
+  },
+  {
+    "id": "AS-003",
+    "proj_id": "PROJ-2026-003",
+    "cust_id": "CUST-0003",
+    "type": "NORMAL",
+    "issue": "증설 현장 실측 완료",
+    "desc": "도면 설계 및 견적 발송",
+    "status": "COMPLETED",
+    "date": "2026-03-01"
+  },
+  {
+    "id": 1779009343979,
+    "cust_id": "",
+    "cust_name": "asd",
+    "phone": "asd",
+    "issue": "asd",
+    "type": "NORMAL",
+    "status": "OPEN",
+    "date": "2026-05-17"
+  },
+  {
+    "id": 1779010074441,
+    "cust_id": "",
+    "cust_name": "asdd",
+    "phone": "asd",
+    "issue": "asf",
+    "type": "NORMAL",
+    "status": "OPEN",
+    "date": "2026-05-17"
+  }
+]

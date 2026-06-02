@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>알림 · 자동화 룰 — ColdStorage Master</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7;--card:#fff;--line:#e5e7eb;--line-2:#eef0f3;
+  --ink:#0f172a;--ink-2:#334155;--mute:#64748b;--soft:#94a3b8;
+  --brand:#1e40af;--brand-soft:#eff4ff;--brand-line:#c7d6f5;
+  --pos:#059669;--pos-soft:#ecfdf5;--neg:#dc2626;--neg-soft:#fef2f2;
+  --warn:#d97706;--warn-soft:#fef3c7;
+  --violet:#7c3aed;--violet-soft:#f5f3ff;
+  --teal:#0d9488;--teal-soft:#f0fdfa;
+  --pink:#be185d;--pink-soft:#fdf2f8;
+}
+body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;padding:12px 22px;background:#fff;border-bottom:1px solid var(--line);gap:14px;position:sticky;top:0;z-index:20}
+.crumbs{font-size:11.5px;color:var(--mute);font-weight:500}
+.crumbs strong{color:var(--ink);font-weight:700}
+.title{font-size:17px;font-weight:800;letter-spacing:-.01em;margin-right:auto}
+.title small{font-size:11px;color:var(--mute);font-weight:500;margin-left:6px;letter-spacing:0}
+.btn{height:30px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11.5px;font-weight:600;color:var(--ink);display:inline-flex;align-items:center;gap:5px}
+.btn:hover{background:#f8fafc}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn.primary:hover{background:#1e3a8a}
+
+.wrap{max-width:1640px;margin:0 auto;padding:14px 22px 32px}
+.row{display:grid;gap:10px;margin-bottom:10px}
+
+/* Sub-tabs */
+.subtabs{display:flex;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px;margin-bottom:12px;align-items:center}
+.subtab{padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--mute);cursor:pointer;border-radius:4px;display:inline-flex;align-items:center;gap:6px;letter-spacing:-.01em}
+.subtab:hover{color:var(--ink)}
+.subtab.on{background:var(--ink);color:#fff}
+.subtab .badge{background:#f1f5f9;color:var(--mute);font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px}
+.subtab.on .badge{background:rgba(255,255,255,.18);color:#fff}
+
+/* KPI */
+.kpis{grid-template-columns:repeat(5,1fr)}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.kpi .l{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:5px}
+.kpi .v{font-size:22px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.05}
+.kpi .v small{font-size:12px;font-weight:600;color:var(--soft);margin-left:3px}
+.kpi .d{display:flex;align-items:center;gap:5px;margin-top:5px;font-size:10.5px;color:var(--mute);font-weight:500}
+.kpi .pct{padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700}
+.kpi .pct.up{background:var(--pos-soft);color:var(--pos)}
+.kpi .pct.warn{background:var(--warn-soft);color:#92400e}
+.kpi .pct.brand{background:var(--brand-soft);color:var(--brand)}
+
+/* Layout */
+.layout{display:grid;grid-template-columns:260px 1fr 380px;gap:10px;align-items:flex-start}
+
+/* Sidebar */
+.sidebar{background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden;position:sticky;top:70px}
+.side-h{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);padding:10px 12px 4px;margin-top:4px}
+.side-h:first-child{margin-top:0}
+.cat{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;border-left:2px solid transparent;color:var(--ink-2)}
+.cat:hover{background:#f8fafc}
+.cat.on{background:var(--brand-soft);color:var(--brand);font-weight:700;border-left-color:var(--brand)}
+.cat .ic{width:20px;height:20px;border-radius:5px;background:#f1f5f9;color:var(--mute);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.cat.on .ic{background:var(--brand);color:#fff}
+.cat .count{margin-left:auto;font-size:10.5px;color:var(--soft);font-weight:600;font-variant-numeric:tabular-nums}
+.cat.on .count{color:var(--brand)}
+.cat .dot{width:6px;height:6px;border-radius:50%;background:var(--pos);margin-left:6px}
+
+/* Main */
+.card{background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.card-h{padding:11px 14px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px}
+.card-h h3{font-size:12.5px;font-weight:800;letter-spacing:-.01em}
+.card-h .sub{font-size:10.5px;color:var(--mute);font-weight:500}
+.card-h .right{margin-left:auto;display:flex;align-items:center;gap:6px}
+
+/* Rule row */
+.rule{display:grid;grid-template-columns:auto 1fr auto auto auto;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--line-2);cursor:pointer}
+.rule:first-child{border-top:none}
+.rule:hover{background:#fafbfc}
+.rule.on-row{background:var(--brand-soft)}
+.rule .ico{width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.rule .ico.brand{background:#dbeafe;color:var(--brand)}
+.rule .ico.warn{background:#fef3c7;color:#92400e}
+.rule .ico.violet{background:#f3e8ff;color:#6b21a8}
+.rule .ico.teal{background:#ccfbf1;color:#0f766e}
+.rule .ico.pos{background:#dcfce7;color:#166534}
+.rule .ico.red{background:#fee2e2;color:#991b1b}
+.rule .ico.pink{background:#fdf2f8;color:#be185d}
+.rule .meta .nm{font-size:13.5px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.rule .meta .desc{font-size:11.5px;color:var(--mute);margin-top:3px;line-height:1.45}
+.rule .meta .desc b{color:var(--ink-2);font-weight:600}
+.rule .meta .desc .tk{display:inline-block;padding:1px 6px;background:#f1f5f9;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--ink-2);font-weight:600;margin:0 2px}
+.rule .meta .desc .tk.brand{background:var(--brand-soft);color:var(--brand)}
+.rule .meta .desc .tk.warn{background:var(--warn-soft);color:#92400e}
+.rule .runs{font-size:10.5px;color:var(--mute);font-weight:600;text-align:right;font-variant-numeric:tabular-nums;min-width:90px}
+.rule .runs b{display:block;color:var(--ink);font-size:13px;font-weight:800;letter-spacing:-.01em}
+.rule .channels{display:flex;gap:4px;flex-wrap:wrap;max-width:140px}
+.rule .ch{width:24px;height:24px;border-radius:5px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--ink-2)}
+.rule .ch.k{background:#fef08a;color:#7c2d12}
+.rule .ch.s{background:#dbeafe;color:#1e40af}
+.rule .ch.m{background:#fce7f3;color:#be185d}
+.rule .ch.p{background:#dcfce7;color:#166534}
+
+.toggle{width:42px;height:24px;background:#cbd5e1;border-radius:99px;position:relative;flex-shrink:0;transition:.18s;cursor:pointer}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.toggle.on{background:linear-gradient(135deg,#1e40af,#3b82f6)}
+.toggle.on::after{left:20px}
+
+.tag{display:inline-flex;align-items:center;padding:2px 7px;font-size:9.5px;font-weight:700;letter-spacing:.04em;border-radius:3px;text-transform:uppercase}
+.tag.pos{background:var(--pos-soft);color:var(--pos)}
+.tag.warn{background:var(--warn-soft);color:#92400e}
+.tag.violet{background:var(--violet-soft);color:var(--violet)}
+.tag.brand{background:var(--brand-soft);color:var(--brand)}
+.tag.gray{background:#f1f5f9;color:#475569}
+.tag.teal{background:var(--teal-soft);color:#0f766e}
+
+/* Recent runs log */
+.log-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:9px 14px;border-top:1px solid var(--line-2);font-size:11.5px;align-items:center}
+.log-row:first-child{border-top:none}
+.log-row:hover{background:#fafbfc}
+.log-row .ic{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex-shrink:0}
+.log-row .ic.pos{background:var(--pos)}
+.log-row .ic.warn{background:var(--warn)}
+.log-row .ic.neg{background:var(--neg)}
+.log-row .ic.brand{background:var(--brand)}
+.log-row .nm{font-weight:700;color:var(--ink-2);font-size:12px;letter-spacing:-.01em}
+.log-row .nm small{display:block;color:var(--mute);font-weight:500;font-size:10.5px;margin-top:2px;letter-spacing:0}
+.log-row .when{font-size:10.5px;color:var(--mute);font-weight:600;text-align:right;font-variant-numeric:tabular-nums;flex-shrink:0}
+
+/* Detail panel — visual rule builder */
+.builder{background:#fff;border:1px solid var(--line);border-radius:6px;position:sticky;top:70px;max-height:calc(100vh - 88px);overflow-y:auto}
+.builder-h{padding:14px 16px;border-bottom:1px solid var(--line-2);display:flex;align-items:flex-start;gap:10px}
+.builder-h .ico{width:38px;height:38px;border-radius:8px;background:#fef3c7;color:#92400e;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.builder-h .ti{font-size:13.5px;font-weight:800;letter-spacing:-.01em}
+.builder-h .id{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);font-weight:700;margin-top:2px;letter-spacing:-.02em}
+.builder-h .x{margin-left:auto;width:26px;height:26px;border:1px solid var(--line);border-radius:5px;background:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;color:var(--mute);flex-shrink:0}
+
+.builder-body{padding:14px 16px}
+
+/* Visual block flow */
+.block{border-radius:8px;padding:11px 12px;margin-bottom:8px;position:relative;border:1.5px solid}
+.block .head{display:flex;align-items:center;gap:7px;font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.block .body{font-size:12px;line-height:1.55;font-weight:500}
+.block .body b{font-weight:700;color:var(--ink)}
+.block .body .tk{display:inline-block;padding:2px 7px;background:#fff;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);font-weight:700;margin:1px 2px;border:1px solid var(--line)}
+.block.trigger{background:var(--violet-soft);border-color:#c4b5fd;color:var(--violet)}
+.block.trigger .body{color:#581c87}
+.block.cond{background:var(--warn-soft);border-color:#fde68a;color:#92400e}
+.block.cond .body{color:#7c2d12}
+.block.action{background:var(--pos-soft);border-color:#86efac;color:var(--pos)}
+.block.action .body{color:#14532d}
+.connector{display:flex;align-items:center;justify-content:center;padding:2px 0;color:var(--mute);font-size:14px}
+.connector::after{content:'↓';font-weight:800}
+.add-step{padding:9px 12px;border:1.5px dashed var(--line);border-radius:8px;background:#fafbfc;text-align:center;font-size:11px;color:var(--mute);font-weight:700;cursor:pointer;margin-top:4px;letter-spacing:.04em;text-transform:uppercase}
+.add-step:hover{border-color:var(--brand-line);color:var(--brand);background:var(--brand-soft)}
+
+.b-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--line-2)}
+.b-section-h{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.kv{display:grid;grid-template-columns:84px 1fr;gap:6px;font-size:11.5px;padding:4px 0}
+.kv .k{color:var(--mute);font-weight:500}
+.kv .v{font-weight:600;color:var(--ink-2)}
+
+.channel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.ch-pill{padding:7px 10px;border:1.5px solid var(--line);border-radius:6px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;cursor:pointer}
+.ch-pill .ic{width:20px;height:20px;border-radius:5px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:var(--ink-2);flex-shrink:0}
+.ch-pill.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
+.ch-pill.on .ic{background:var(--brand);color:#fff}
+
+.cta{margin-top:14px;display:flex;gap:6px}
+.cta .btn{flex:1;justify-content:center;height:34px;font-size:12px}
+
+/* Template gallery row */
+.templates{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}
+.tpl{padding:12px 14px;border:1.5px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;transition:.15s;position:relative}
+.tpl:hover{border-color:var(--brand-line);box-shadow:0 4px 12px rgba(15,23,42,.06);transform:translateY(-1px)}
+.tpl .ic{width:32px;height:32px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:8px}
+.tpl.brand .ic{background:#dbeafe;color:#1e40af}
+.tpl.warn .ic{background:#fef3c7;color:#92400e}
+.tpl.violet .ic{background:#f3e8ff;color:#6b21a8}
+.tpl.teal .ic{background:#ccfbf1;color:#0f766e}
+.tpl h4{font-size:13px;font-weight:800;letter-spacing:-.015em;margin-bottom:3px}
+.tpl p{font-size:11px;color:var(--mute);line-height:1.45}
+.tpl .stat{position:absolute;top:10px;right:12px;font-size:9.5px;font-weight:700;color:var(--mute)}
+
+/* Search bar */
+.fbar{background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.fbar input{flex:1;height:26px;border:none;outline:none;font-size:12px;background:transparent;padding:0 8px;font-family:inherit}
+.fbar .chip{display:flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:99px;font-size:11px;font-weight:600;background:#fff;color:var(--ink);cursor:pointer}
+.fbar .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.fbar .sep{width:1px;height:18px;background:var(--line)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="crumbs"><strong>설정</strong> · 알림 · 자동화 룰</div>
+  <div class="title">알림 · 자동화 룰 <small>이번 달 5,840건 자동 실행 · 24h/365일 가동</small></div>
+  <button class="btn">📥 룰 가져오기</button>
+  <button class="btn">📊 실행 로그</button>
+  <button class="btn primary">＋ 새 룰 만들기</button>
+</div>
+
+<div class="wrap">
+
+  <div class="subtabs">
+    <div class="subtab on">⚡ 활성 룰 <span class="badge">14</span></div>
+    <div class="subtab">🧪 테스트 중 <span class="badge">2</span></div>
+    <div class="subtab">⏸ 일시정지 <span class="badge">3</span></div>
+    <div class="subtab">📚 템플릿 라이브러리</div>
+    <div class="subtab">🔗 외부 연동 (5)</div>
+    <div style="margin-left:auto;font-size:10.5px;color:var(--mute);padding-right:6px">
+      성공률 <b style="color:var(--pos);font-weight:700">98.2%</b> · 평균 지연 <b style="color:var(--ink);font-weight:700">0.8초</b>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="row kpis">
+    <div class="kpi">
+      <div class="l">이번달 자동 실행</div>
+      <div class="v">5,840<small>건</small></div>
+      <div class="d"><span class="pct up">▲ 22%</span> 전월 대비</div>
+    </div>
+    <div class="kpi">
+      <div class="l">절약된 작업 시간</div>
+      <div class="v">182<small>시간</small></div>
+      <div class="d">= 약 <b style="color:var(--pos);font-weight:700">4,550,000원</b> 인건비</div>
+    </div>
+    <div class="kpi">
+      <div class="l">발송된 메시지</div>
+      <div class="v">3,128<small>건</small></div>
+      <div class="d">카톡 1,840 · SMS 612 · 메일 676</div>
+    </div>
+    <div class="kpi">
+      <div class="l">실패 / 재시도</div>
+      <div class="v">102<small>건</small></div>
+      <div class="d"><span class="pct warn">98.2% 성공</span></div>
+    </div>
+    <div class="kpi">
+      <div class="l">대기 중 알림</div>
+      <div class="v">28<small>건</small></div>
+      <div class="d">금일 발송 예정 14건</div>
+    </div>
+  </div>
+
+  <!-- Template gallery -->
+  <div class="templates">
+    <div class="tpl brand">
+      <div class="ic">📅</div>
+      <h4>정기점검 알림</h4>
+      <p>인계 후 6개월 시점에 자동 안내 발송</p>
+      <span class="stat">+ 추가</span>
+    </div>
+    <div class="tpl warn">
+      <div class="ic">💸</div>
+      <h4>미수금 단계별 독촉</h4>
+      <p>30 / 60 / 90일 자동 안내 + 담당자 알림</p>
+      <span class="stat">사용 중</span>
+    </div>
+    <div class="tpl violet">
+      <div class="ic">🛠</div>
+      <h4>A/S 응답 SLA</h4>
+      <p>접수 4시간 미응답 시 사장님 알림</p>
+      <span class="stat">사용 중</span>
+    </div>
+    <div class="tpl teal">
+      <div class="ic">📦</div>
+      <h4>안전재고 자동 발주</h4>
+      <p>임계 도달 시 발주서 초안 자동 생성</p>
+      <span class="stat">+ 추가</span>
+    </div>
+  </div>
+
+  <!-- Search bar -->
+  <div class="fbar">
+    <button class="chip on">전체 14</button>
+    <button class="chip">고객·CRM 4</button>
+    <button class="chip">견적·계약 3</button>
+    <button class="chip">결제·미수 2</button>
+    <button class="chip">A/S 3</button>
+    <button class="chip">재고·발주 1</button>
+    <button class="chip">내부 운영 1</button>
+    <div class="sep"></div>
+    <input placeholder="룰 이름·트리거·액션 검색"/>
+    <button class="btn" style="height:26px">⤓ 엑셀</button>
+  </div>
+
+  <!-- Main 3-column layout -->
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="side-h">카테고리</div>
+      <div class="cat on"><div class="ic">⚡</div>모든 룰<span class="count">14</span></div>
+      <div class="cat"><div class="ic">👤</div>고객 · CRM<span class="count">4</span></div>
+      <div class="cat"><div class="ic">📄</div>견적 · 계약<span class="count">3</span></div>
+      <div class="cat"><div class="ic">💰</div>결제 · 미수금<span class="count">2</span><span class="dot"></span></div>
+      <div class="cat"><div class="ic">🛠</div>A/S · 점검<span class="count">3</span></div>
+      <div class="cat"><div class="ic">📦</div>재고 · 발주<span class="count">1</span></div>
+      <div class="cat"><div class="ic">👥</div>내부 운영<span class="count">1</span></div>
+
+      <div class="side-h" style="margin-top:14px">트리거 유형</div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="font-size:10px">⏰</div>일정 / 스케줄<span class="count">5</span></div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="font-size:10px">⚡</div>이벤트 기반<span class="count">7</span></div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="font-size:10px">📊</div>조건 임계값<span class="count">2</span></div>
+
+      <div class="side-h" style="margin-top:14px">발송 채널</div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="background:#fef08a;color:#7c2d12;font-size:9px">K</div>카카오톡<span class="count">9</span></div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="background:#dbeafe;color:#1e40af;font-size:9px">S</div>SMS<span class="count">4</span></div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="background:#fce7f3;color:#be185d;font-size:9px">@</div>이메일<span class="count">6</span></div>
+      <div class="cat" style="font-size:11px"><div class="ic" style="background:#dcfce7;color:#166534;font-size:9px">P</div>앱 푸시<span class="count">8</span></div>
+    </aside>
+
+    <!-- Center: rules list + recent runs -->
+    <div>
+      <div class="card">
+        <div class="card-h">
+          <h3>활성 룰 (14)</h3>
+          <span class="sub">트리거 → 조건 → 액션 · 실시간 동작</span>
+          <div class="right">
+            <button class="btn" style="height:26px;font-size:10.5px">⚙ 컬럼</button>
+            <button class="btn" style="height:26px;font-size:10.5px">정렬: 사용량 ↓</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="rule on-row">
+            <div class="ico warn">💸</div>
+            <div class="meta">
+              <div class="nm">미수금 30일 자동 독촉 <span class="tag pos">활성</span></div>
+              <div class="desc">잔금 만기 후 <span class="tk warn">D+30</span> 경과 시 → 고객에게 <span class="tk brand">카카오톡 안내톡</span> 발송 + 담당 영업에 <span class="tk brand">앱 푸시</span></div>
+            </div>
+            <div class="runs"><b>284회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico violet">🛠</div>
+            <div class="meta">
+              <div class="nm">A/S 4시간 미배정 에스컬레이션</div>
+              <div class="desc">A/S 접수 후 <span class="tk">4시간</span> 내 기사 미배정 시 → 사장님 <span class="tk brand">SMS</span> + <span class="tk brand">앱 푸시</span> 알림</div>
+            </div>
+            <div class="runs"><b>12회</b>이번달</div>
+            <div class="channels"><span class="ch s">S</span><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico brand">📅</div>
+            <div class="meta">
+              <div class="nm">정기점검 6개월 시점 안내</div>
+              <div class="desc">시공 인계일로부터 <span class="tk">6개월 전</span> 도래 시 → 고객 <span class="tk brand">카톡</span> + 사무직 <span class="tk brand">앱 푸시</span> · 예약 링크 동봉</div>
+            </div>
+            <div class="runs"><b>42회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico pos">📄</div>
+            <div class="meta">
+              <div class="nm">견적 발송 3일 후 팔로업</div>
+              <div class="desc">견적서 발송 <span class="tk">D+3</span>까지 응답 없음 → 담당 영업에 <span class="tk brand">팔로업 알림</span> + 고객에게 <span class="tk brand">카톡 리마인드</span></div>
+            </div>
+            <div class="runs"><b>96회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico teal">📦</div>
+            <div class="meta">
+              <div class="nm">안전재고 자동 발주 초안</div>
+              <div class="desc">재고가 안전재고의 <span class="tk warn">80% 이하</span> 도달 시 → 발주서 초안 자동 생성 + 사무직 <span class="tk brand">앱 푸시</span></div>
+            </div>
+            <div class="runs"><b>18회</b>이번달</div>
+            <div class="channels"><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico red">🚨</div>
+            <div class="meta">
+              <div class="nm">90일 초과 미수금 긴급 알림</div>
+              <div class="desc">미수금 <span class="tk warn">D+90</span> 도달 → 사장님 <span class="tk brand">SMS + 카톡</span> · 회수 액션 카드 자동 생성</div>
+            </div>
+            <div class="runs"><b>2회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span><span class="ch s">S</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico violet">🎂</div>
+            <div class="meta">
+              <div class="nm">고객 생일 · 창립기념일 인사</div>
+              <div class="desc">고객 마스터의 <span class="tk">creation_date</span> 도래 → <span class="tk brand">카톡 인사말</span> 자동 발송 · VIP는 영업 알림 동시</div>
+            </div>
+            <div class="runs"><b>14회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico warn">⚠</div>
+            <div class="meta">
+              <div class="nm">자격증 만료 30일 전 알림</div>
+              <div class="desc">직원 자격증 만료 <span class="tk">D-30</span> · <span class="tk">D-7</span> 시점 → 본인 + 사장님 <span class="tk brand">앱 푸시 + SMS</span></div>
+            </div>
+            <div class="runs"><b>4회</b>이번달</div>
+            <div class="channels"><span class="ch s">S</span><span class="ch p">P</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico pos">✅</div>
+            <div class="meta">
+              <div class="nm">시공 완료 → 리뷰 요청</div>
+              <div class="desc">시공 완료 <span class="tk">D+7</span> 시점 → 고객에게 <span class="tk brand">카톡 만족도 설문</span> 발송 · 응답 시 자동 평점 집계</div>
+            </div>
+            <div class="runs"><b>22회</b>이번달</div>
+            <div class="channels"><span class="ch k">K</span></div>
+            <div class="toggle on"></div>
+          </div>
+
+          <div class="rule">
+            <div class="ico pink">💌</div>
+            <div class="meta">
+              <div class="nm">VIP 고객 분기별 안부 메일</div>
+              <div class="desc">VIP 고객 대상 분기별 <span class="tk">1일 09:00</span> → 영업 담당 명의 <span class="tk brand">이메일</span> 발송 (수동 검토 후 전송)</div>
+            </div>
+            <div class="runs"><b>8회</b>이번달</div>
+            <div class="channels"><span class="ch m">@</span></div>
+            <div class="toggle on"></div>
+          </div>
+        </div>
+
+        <div style="padding:8px 12px;border-top:1px solid var(--line-2);display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--mute)">
+          <span>1–10 / 14 룰 표시</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn" style="height:24px;padding:0 8px">‹</button>
+            <button class="btn" style="height:24px;padding:0 8px;background:var(--ink);color:#fff;border-color:var(--ink)">1</button>
+            <button class="btn" style="height:24px;padding:0 8px">2</button>
+            <button class="btn" style="height:24px;padding:0 8px">›</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent runs log -->
+      <div class="card" style="margin-top:10px">
+        <div class="card-h">
+          <h3>최근 실행 로그</h3>
+          <span class="sub">실시간 · 최근 50건</span>
+          <div class="right">
+            <button class="btn" style="height:26px;font-size:10.5px;background:#0f172a;color:#fff;border-color:#0f172a">모두</button>
+            <button class="btn" style="height:26px;font-size:10.5px">실패만</button>
+            <button class="btn" style="height:26px;font-size:10.5px">필터</button>
+          </div>
+        </div>
+        <div>
+          <div class="log-row">
+            <div class="ic pos">✓</div>
+            <div class="nm">미수금 30일 알림 — 대성유통<small>카카오톡 안내톡 발송 · 4,200,000원 잔금 안내</small></div>
+            <div class="when">방금 전<br>14:22</div>
+          </div>
+          <div class="log-row">
+            <div class="ic pos">✓</div>
+            <div class="nm">견적 발송 3일 후 팔로업 — 한라농산<small>카톡 리마인드 + 김재훈 차장 푸시</small></div>
+            <div class="when">11분 전<br>14:11</div>
+          </div>
+          <div class="log-row">
+            <div class="ic warn">!</div>
+            <div class="nm">자격증 만료 D-12 — 최영민 기사<small>저온 2급 만료 임박 · 본인 + 사장님 SMS 발송</small></div>
+            <div class="when">42분 전<br>13:40</div>
+          </div>
+          <div class="log-row">
+            <div class="ic pos">✓</div>
+            <div class="nm">정기점검 안내 — 양평종합주방<small>인계 6개월 시점 · 카톡 + 예약 링크 동봉</small></div>
+            <div class="when">2시간 전<br>12:30</div>
+          </div>
+          <div class="log-row">
+            <div class="ic brand">⚡</div>
+            <div class="nm">안전재고 자동 발주 초안 — 우레탄 판넬 100T<small>재고 12장 / 안전 40장 · 한일판넬 발주 초안 생성</small></div>
+            <div class="when">3시간 전<br>11:08</div>
+          </div>
+          <div class="log-row">
+            <div class="ic neg">✕</div>
+            <div class="nm">시공 완료 리뷰 요청 — 청정수산<small>카톡 전송 실패 · 수신자 미설치 · SMS로 자동 폴백</small></div>
+            <div class="when">5시간 전<br>09:42</div>
+          </div>
+          <div class="log-row">
+            <div class="ic pos">✓</div>
+            <div class="nm">시공 완료 리뷰 요청 — 청정수산 (재시도)<small>SMS 폴백 발송 성공 · 1차 실패 자동 보정</small></div>
+            <div class="when">5시간 전<br>09:43</div>
+          </div>
+          <div class="log-row">
+            <div class="ic pos">✓</div>
+            <div class="nm">A/S 4시간 미배정 — 청정수산 여수<small>긴급 A/S · 김재훈 차장 SMS + 사장님 앱 푸시</small></div>
+            <div class="when">어제<br>18:24</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: visual rule builder -->
+    <aside class="builder">
+      <div class="builder-h">
+        <div class="ico">💸</div>
+        <div style="flex:1">
+          <div class="ti">미수금 30일 자동 독촉</div>
+          <div class="id">RULE-AR-0014 · 활성 · 284회 / 이번달</div>
+        </div>
+        <button class="x">✕</button>
+      </div>
+
+      <div class="builder-body">
+
+        <!-- Block 1: Trigger -->
+        <div class="block trigger">
+          <div class="head"><span>🎯</span>① 트리거 WHEN</div>
+          <div class="body">
+            매일 <b>09:00</b> 미수금 데이터 점검 후<br>
+            <span class="tk">contract.balance_due</span> &gt; 0 <span class="tk">AND</span><br>
+            <span class="tk">days_since_due</span> = <span class="tk">30</span>
+          </div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- Block 2: Condition -->
+        <div class="block cond">
+          <div class="head"><span>🔍</span>② 조건 IF</div>
+          <div class="body">
+            <span class="tk">customer.dnc</span> ≠ true<br>
+            <span class="tk">AND</span> <span class="tk">contract.amount</span> ≥ <span class="tk">1,000,000원</span><br>
+            <span class="tk">AND</span> 마지막 안내 발송 <span class="tk">≥ 7일</span> 경과
+          </div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- Block 3: Action 1 -->
+        <div class="block action">
+          <div class="head"><span>💬</span>③ 액션 THEN — 1</div>
+          <div class="body">
+            고객 대표에게 <b>카카오톡 안내톡</b> 발송<br>
+            템플릿: <span class="tk">payment_remind_d30</span><br>
+            변수: 잔금, 계약번호, 결제 링크
+          </div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- Block 4: Action 2 -->
+        <div class="block action">
+          <div class="head"><span>📲</span>④ 액션 THEN — 2</div>
+          <div class="body">
+            담당 영업에게 <b>앱 푸시</b> 알림<br>
+            <span class="tk">"미수금 D+30 안내 발송됨"</span><br>
+            결과를 <span class="tk">contract.activity_log</span>에 기록
+          </div>
+        </div>
+
+        <div class="add-step">＋ 액션 추가</div>
+
+        <!-- Channels -->
+        <div class="b-section">
+          <div class="b-section-h">발송 채널</div>
+          <div class="channel-grid">
+            <div class="ch-pill on"><div class="ic">K</div>카카오톡</div>
+            <div class="ch-pill"><div class="ic">@</div>이메일</div>
+            <div class="ch-pill"><div class="ic">S</div>SMS</div>
+            <div class="ch-pill on"><div class="ic">P</div>앱 푸시</div>
+          </div>
+          <div style="margin-top:6px;padding:6px 8px;background:var(--brand-soft);border-radius:4px;font-size:10.5px;color:var(--brand);font-weight:600;line-height:1.5">
+            <b>📌 자동 폴백</b> 카톡 미설치 시 → SMS 자동 대체 발송
+          </div>
+        </div>
+
+        <!-- Performance -->
+        <div class="b-section">
+          <div class="b-section-h">성과 (최근 30일)</div>
+          <div class="kv"><span class="k">실행</span><span class="v">284회</span></div>
+          <div class="kv"><span class="k">전송 성공</span><span class="v"><b style="color:var(--pos)">281건 (98.9%)</b></span></div>
+          <div class="kv"><span class="k">읽음</span><span class="v">218건 (76.6%)</span></div>
+          <div class="kv"><span class="k">결제 전환</span><span class="v"><b style="color:var(--pos)">142건 (50.0%)</b></span></div>
+          <div class="kv"><span class="k">회수 금액</span><span class="v" style="font-variant-numeric:tabular-nums">68.4M ₩</span></div>
+          <div class="kv"><span class="k">평균 회수일</span><span class="v"><b>2.4일</b> 단축</span></div>
+        </div>
+
+        <div class="b-section">
+          <div class="b-section-h"><span>대상자 검토</span><a style="color:var(--brand);font-weight:700;font-size:10.5px;cursor:pointer">전체 28건 →</a></div>
+          <div class="kv"><span class="k">오늘 발송</span><span class="v">4건 예정 · 09:00</span></div>
+          <div class="kv"><span class="k">제외 (DNC)</span><span class="v">2건</span></div>
+          <div class="kv"><span class="k">금액 미달</span><span class="v">6건</span></div>
+        </div>
+
+        <div class="cta">
+          <button class="btn">🧪 테스트 실행</button>
+          <button class="btn primary">💾 변경사항 저장</button>
+        </div>
+        <button class="btn" style="width:100%;margin-top:6px;justify-content:center;color:var(--neg);border-color:#fca5a5">⏸ 일시 정지</button>
+
+      </div>
+    </aside>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,33 @@
+[
+  {
+    "category": "PANEL",
+    "category_name": "판넬",
+    "items": [
+      { "code": "PN-900", "name": "우레탄 판넬 100T", "spec": "900mm", "unit": "m2", "price": 45000 },
+      { "code": "PN-CORNER", "name": "코너 판넬 100T", "spec": "L형", "unit": "EA", "price": 55000 }
+    ]
+  },
+  {
+    "category": "UNIT",
+    "category_name": "기계",
+    "items": [
+      { "code": "COL-3HP", "name": "3마력 유닛 냉동기", "spec": "3HP / 단상", "unit": "SET", "price": 2800000 },
+      { "code": "COL-5HP", "name": "5마력 냉동기 세트", "spec": "5HP / 삼상", "unit": "SET", "price": 4200000 }
+    ]
+  },
+  {
+    "category": "DOOR",
+    "category_name": "도어",
+    "items": [
+      { "code": "DR-STD", "name": "표준형 슬라이딩 도어", "spec": "900 x 2100", "unit": "SET", "price": 1200000 }
+    ]
+  },
+  {
+    "category": "BASE",
+    "category_name": "기타",
+    "items": [
+      { "code": "PIPE-50", "name": "아연 각파이프", "spec": "50x50 / 2.3T", "unit": "본(6m)", "price": 32000 },
+      { "code": "CHECK-P", "name": "알루미늄 체크판", "spec": "1219x2438", "unit": "장", "price": 88000 }
+    ]
+  }
+]

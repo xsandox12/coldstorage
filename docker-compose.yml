@@ -1,0 +1,12 @@
+services:
+  coldstorage:
+    build: .
+    container_name: coldstorage
+    ports:
+      - "9000:9000"
+    volumes:
+      - coldstorage-db:/app/db
+    restart: unless-stopped
+
+volumes:
+  coldstorage-db:

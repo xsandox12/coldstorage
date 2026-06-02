@@ -1,0 +1,13 @@
+[
+  {
+    "id": "CONT-2026-001",
+    "proj_id": "PROJ-2026-002",
+    "cust_id": "CUST-0001",
+    "total_price": 12500000,
+    "down_payment": 1250000,
+    "middle_payment": 0,
+    "balance": 11250000,
+    "billing_status": "PENDING",
+    "note": "계약금 10% 납부 완료"
+  }
+]
