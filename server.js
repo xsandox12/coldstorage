@@ -81,6 +81,18 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cat1 TEXT DEFAULT '',
+    cat2 TEXT DEFAULT '',
+    cat3 TEXT DEFAULT '',
+    cat4 TEXT DEFAULT '',
+    name TEXT DEFAULT '',
+    unit TEXT DEFAULT '',
+    price INTEGER DEFAULT 0,
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ─── 마이그레이션 ────────────────────────────────────────────
@@ -137,6 +149,7 @@ const TABLES = {
   as_records:  { table: 'as_records',  int: false },
   drawings:    { table: 'drawings',    int: false },
   order_items: { table: 'order_items', int: true  },
+  products:    { table: 'products',    int: true  },
 };
 
 // ─── 직렬화 / 역직렬화 ──────────────────────────────────────

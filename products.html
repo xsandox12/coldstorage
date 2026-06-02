@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>상품 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  .cat-item { padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:#475569;transition:all .1s;display:flex;justify-content:space-between;align-items:center; }
+  .cat-item:hover { background:#f1f5f9; }
+  .cat-item.sel { background:#eff6ff;color:#1d4ed8;font-weight:600; }
+  .cat-sub { padding:4px 12px 4px 24px;border-radius:6px;cursor:pointer;font-size:12px;color:#64748b;transition:all .1s;display:flex;justify-content:space-between;align-items:center; }
+  .cat-sub:hover { background:#f8fafc; }
+  .cat-sub.sel { background:#dbeafe;color:#1d4ed8;font-weight:500; }
+  ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+  .fi { border:1px solid #e2e8f0;border-radius:6px;padding:6px 10px;font-size:13px;width:100%; }
+  .fi:focus { outline:none;border-color:#3b82f6; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 견적/주문</a>
+    <a href="/customers.html" class="nav-link">👤 고객</a>
+    <a href="/as.html" class="nav-link">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link">💰 입금</a>
+    <a href="/products.html" class="nav-link active">📦 상품</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 flex overflow-hidden">
+  <!-- 카테고리 사이드바 -->
+  <div class="w-52 bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-hidden">
+    <div class="p-3 border-b border-slate-100 shrink-0">
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">분류</span>
+    </div>
+    <div id="cat-tree" class="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5"></div>
+  </div>
+
+  <!-- 메인 -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- 헤더 -->
+    <div class="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3">
+      <h1 class="font-bold text-base shrink-0">상품 관리</h1>
+      <div class="flex-1"></div>
+      <input id="search" type="text" placeholder="상품명, 분류 검색..."
+        class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:border-blue-400" oninput="render()">
+      <button onclick="openModal(null)" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700 shrink-0">+ 상품 추가</button>
+    </div>
+
+    <!-- 중분류 탭 -->
+    <div id="sub-tabs" class="bg-white border-b border-slate-100 px-4 flex gap-0 overflow-x-auto shrink-0"></div>
+
+    <!-- 테이블 -->
+    <div class="flex-1 overflow-y-auto p-5">
+      <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">대분류</th>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">중분류</th>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">소분류</th>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">상세</th>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">상품명</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500 w-16">단위</th>
+              <th class="p-3 text-right text-xs font-medium text-slate-500 w-32">판매가</th>
+              <th class="p-3 w-24"></th>
+            </tr>
+          </thead>
+          <tbody id="prod-tbody"></tbody>
+        </table>
+        <div id="empty-msg" class="hidden py-12 text-center text-slate-400 text-sm">등록된 상품이 없습니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 추가/편집 모달 -->
+<div id="modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[520px] shadow-xl">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="font-bold text-base" id="modal-title">상품 추가</h2>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">대분류</label>
+        <input id="f-cat1" list="dl-cat1" class="fi" placeholder="예: 냉동창고">
+        <datalist id="dl-cat1"></datalist>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">중분류</label>
+        <input id="f-cat2" list="dl-cat2" class="fi" placeholder="예: 판넬">
+        <datalist id="dl-cat2"></datalist>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">소분류</label>
+        <input id="f-cat3" list="dl-cat3" class="fi" placeholder="예: 벽체판넬">
+        <datalist id="dl-cat3"></datalist>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">상세</label>
+        <input id="f-cat4" list="dl-cat4" class="fi" placeholder="예: 100T">
+        <datalist id="dl-cat4"></datalist>
+      </div>
+      <div class="col-span-2">
+        <label class="text-xs font-medium text-slate-500 mb-1 block">상품명 *</label>
+        <input id="f-name" type="text" class="fi" placeholder="상품명을 입력하세요">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">단위</label>
+        <input id="f-unit" list="dl-unit" class="fi" placeholder="EA">
+        <datalist id="dl-unit">
+          <option value="EA"><option value="m²"><option value="m">
+          <option value="SET"><option value="식"><option value="개">
+          <option value="kg"><option value="개소"><option value="대">
+        </datalist>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">판매가 (원)</label>
+        <input id="f-price" type="number" min="0" class="fi" placeholder="0">
+      </div>
+      <div class="col-span-2">
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모</label>
+        <input id="f-note" type="text" class="fi" placeholder="추가 메모">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="submitForm()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let products = [], editId = null;
+let selCat1 = null, selCat2 = null;
+
+async function init() {
+  products = await fetch('/api/products').then(r => r.json());
+  renderAll();
+}
+
+function uniq(arr) { return [...new Set(arr.filter(Boolean))].sort(); }
+
+function filtered() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  return products.filter(p => {
+    if (selCat1 && p.cat1 !== selCat1) return false;
+    if (selCat2 && p.cat2 !== selCat2) return false;
+    if (!q) return true;
+    return [p.cat1, p.cat2, p.cat3, p.cat4, p.name].some(v => (v||'').toLowerCase().includes(q));
+  });
+}
+
+function renderCatTree() {
+  const cat1s = uniq(products.map(p => p.cat1));
+  let html = `<div class="cat-item ${selCat1===null?'sel':''}" onclick="selCat(null)">
+    <span>전체</span><span class="text-xs text-slate-400">${products.length}</span>
+  </div>`;
+  cat1s.forEach(c1 => {
+    const cnt = products.filter(p => p.cat1 === c1).length;
+    html += `<div class="cat-item ${selCat1===c1?'sel':''}" onclick="selCat(${JSON.stringify(c1)})">
+      <span>${c1}</span><span class="text-xs text-slate-400">${cnt}</span>
+    </div>`;
+    if (selCat1 === c1) {
+      uniq(products.filter(p => p.cat1 === c1).map(p => p.cat2)).forEach(c2 => {
+        const c2cnt = products.filter(p => p.cat1 === c1 && p.cat2 === c2).length;
+        html += `<div class="cat-sub ${selCat2===c2?'sel':''}" onclick="event.stopPropagation();selCat2(${JSON.stringify(c2)})">
+          <span>${c2}</span><span class="text-xs opacity-60">${c2cnt}</span>
+        </div>`;
+      });
+    }
+  });
+  document.getElementById('cat-tree').innerHTML = html;
+}
+
+function renderSubTabs() {
+  const tabs = document.getElementById('sub-tabs');
+  if (!selCat1) { tabs.innerHTML = ''; return; }
+  const cat2s = uniq(products.filter(p => p.cat1 === selCat1).map(p => p.cat2));
+  if (!cat2s.length) { tabs.innerHTML = ''; return; }
+  tabs.innerHTML = [null, ...cat2s].map(c2 => {
+    const active = selCat2 === c2;
+    return `<button onclick="selCat2(${c2 ? JSON.stringify(c2) : 'null'})"
+      class="px-3 py-2.5 text-xs font-medium border-b-2 shrink-0 transition-colors ${active ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}">
+      ${c2 || '전체'}
+    </button>`;
+  }).join('');
+}
+
+function render() {
+  const rows = filtered();
+  const tbody = document.getElementById('prod-tbody');
+  const empty = document.getElementById('empty-msg');
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  tbody.innerHTML = rows.map(p => `<tr class="border-t border-slate-50 hover:bg-slate-50">
+    <td class="p-3 text-xs text-slate-500">${p.cat1||'—'}</td>
+    <td class="p-3 text-xs text-slate-500">${p.cat2||'—'}</td>
+    <td class="p-3 text-xs text-slate-500">${p.cat3||'—'}</td>
+    <td class="p-3 text-xs text-slate-500">${p.cat4||'—'}</td>
+    <td class="p-3 font-medium">${p.name||'—'}</td>
+    <td class="p-3 text-center text-xs text-slate-500">${p.unit||'—'}</td>
+    <td class="p-3 text-right font-semibold">${(p.price||0).toLocaleString()}<span class="text-xs font-normal text-slate-400 ml-0.5">원</span></td>
+    <td class="p-3">
+      <div class="flex gap-1 justify-end">
+        <button onclick="openModal(${p.id})" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-600">편집</button>
+        <button onclick="del(${p.id})" class="text-xs px-2 py-1 text-slate-300 hover:text-red-400 text-base leading-none">✕</button>
+      </div>
+    </td>
+  </tr>`).join('');
+}
+
+function renderAll() { renderCatTree(); renderSubTabs(); render(); updateDL(); }
+
+function selCat(c1) { selCat1 = c1; selCat2 = null; renderAll(); }
+function selCat2(c2) { selCat2 = c2; renderAll(); }
+
+function updateDL() {
+  const fill = (id, vals) => { const dl = document.getElementById(id); if (dl) dl.innerHTML = vals.map(v => `<option value="${v}">`).join(''); };
+  fill('dl-cat1', uniq(products.map(p => p.cat1)));
+  fill('dl-cat2', uniq(products.map(p => p.cat2)));
+  fill('dl-cat3', uniq(products.map(p => p.cat3)));
+  fill('dl-cat4', uniq(products.map(p => p.cat4)));
+}
+
+function openModal(id) {
+  editId = id;
+  const p = id ? products.find(x => x.id === id) : null;
+  document.getElementById('modal-title').textContent = p ? '상품 편집' : '상품 추가';
+  ['cat1','cat2','cat3','cat4','name','unit','note'].forEach(k =>
+    document.getElementById('f-' + k).value = p ? (p[k] || '') : ''
+  );
+  document.getElementById('f-price').value = p ? (p.price || '') : '';
+  document.getElementById('modal').classList.remove('hidden');
+  document.getElementById('f-cat1').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  editId = null;
+}
+
+async function submitForm() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { alert('상품명을 입력하세요.'); return; }
+  const body = {
+    cat1: document.getElementById('f-cat1').value.trim(),
+    cat2: document.getElementById('f-cat2').value.trim(),
+    cat3: document.getElementById('f-cat3').value.trim(),
+    cat4: document.getElementById('f-cat4').value.trim(),
+    name,
+    unit: document.getElementById('f-unit').value.trim(),
+    price: parseInt(document.getElementById('f-price').value) || 0,
+    note: document.getElementById('f-note').value.trim(),
+  };
+  if (editId) {
+    await fetch(`/api/products/${editId}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  } else {
+    await fetch('/api/products', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  }
+  products = await fetch('/api/products').then(r => r.json());
+  closeModal();
+  renderAll();
+}
+
+async function del(id) {
+  if (!confirm('이 상품을 삭제할까요?')) return;
+  await fetch(`/api/products/${id}`, { method: 'DELETE' });
+  products = products.filter(p => p.id !== id);
+  renderAll();
+}
+
+init();
+</script>
+</body>
+</html>
