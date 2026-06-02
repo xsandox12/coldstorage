@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>고객 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+  .row-sel { background:#eff6ff!important; }
+  .s-draft{background:#dbeafe;color:#1d4ed8} .s-ordered{background:#ffedd5;color:#c2410c}
+  .s-partial{background:#fef9c3;color:#854d0e} .s-shipped{background:#ede9fe;color:#6d28d9} .s-done{background:#dcfce7;color:#15803d}
+  input.edit-field { border:1px solid #e2e8f0;border-radius:6px;padding:4px 8px;font-size:13px;width:100%;transition:.15s; }
+  input.edit-field:focus { outline:none;border-color:#3b82f6; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 견적/주문</a>
+    <a href="/customers.html" class="nav-link active">👤 고객</a>
+    <a href="/as.html" class="nav-link">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link">💰 입금</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 flex overflow-hidden">
+  <!-- 목록 -->
+  <div class="w-80 shrink-0 flex flex-col border-r border-slate-200 bg-white">
+    <div class="p-4 border-b border-slate-100">
+      <div class="flex items-center justify-between mb-3">
+        <h1 class="font-bold text-base">고객 / 거래처</h1>
+        <button onclick="openAddModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 추가</button>
+      </div>
+      <input id="search" type="text" placeholder="상호, 대표자, 사업자번호 검색..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" oninput="renderList()">
+    </div>
+    <div id="cust-list" class="flex-1 overflow-y-auto divide-y divide-slate-50"></div>
+  </div>
+
+  <!-- 상세 -->
+  <div class="flex-1 flex flex-col overflow-hidden bg-slate-50" id="detail-area">
+    <div class="flex-1 flex items-center justify-center text-slate-400 text-sm">← 고객을 선택하세요</div>
+  </div>
+</div>
+
+<!-- 추가 모달 -->
+<div id="add-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[500px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">거래처 추가</h2>
+      <button onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="col-span-2"><label class="text-xs text-slate-500">상호명 *</label><input id="am-name" class="edit-field mt-1" placeholder="주식회사 ..."></div>
+      <div><label class="text-xs text-slate-500">대표자</label><input id="am-rep" class="edit-field mt-1" placeholder="홍길동"></div>
+      <div><label class="text-xs text-slate-500">사업자번호</label><input id="am-bno" class="edit-field mt-1" placeholder="000-00-00000"></div>
+      <div><label class="text-xs text-slate-500">전화</label><input id="am-phone" class="edit-field mt-1" placeholder="031-000-0000"></div>
+      <div><label class="text-xs text-slate-500">이메일</label><input id="am-email" class="edit-field mt-1" placeholder="email@example.com"></div>
+      <div class="col-span-2"><label class="text-xs text-slate-500">주소</label><input id="am-addr" class="edit-field mt-1" placeholder="경기도 ..."></div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeAddModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="addCustomer()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">추가</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let customers = [], orders = [], asRecords = [], curId = null;
+const STATUS_LABEL = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료' };
+const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', shipped:'s-shipped', done:'s-done' };
+
+async function init() {
+  [customers, orders, asRecords] = await Promise.all([
+    fetch('/api/customers').then(r=>r.json()),
+    fetch('/api/quotations').then(r=>r.json()),
+    fetch('/api/as_records').then(r=>r.json()),
+  ]);
+  renderList();
+}
+
+function filtered() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  if (!q) return customers;
+  return customers.filter(c => (c.name+c.rep+c.business_no).toLowerCase().includes(q));
+}
+
+function renderList() {
+  const list = document.getElementById('cust-list');
+  const rows = filtered();
+  if (!rows.length) { list.innerHTML = '<div class="p-6 text-center text-slate-400 text-sm">검색 결과 없음</div>'; return; }
+  list.innerHTML = rows.map(c => {
+    const oc = orders.filter(o=>o.customer_id===c.id).length;
+    const ac = asRecords.filter(a=>a.cust_id===c.id).length;
+    return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===c.id?'row-sel':''}" onclick="selectCustomer('${c.id}')">
+      <div class="font-medium text-sm truncate">${c.name}</div>
+      <div class="text-xs text-slate-400 mt-0.5">${c.rep||''} ${c.phone?'· '+c.phone:''}</div>
+      <div class="flex gap-2 mt-1 text-xs text-slate-400">
+        <span>📋 견적 ${oc}건</span>
+        <span>🔧 AS ${ac}건</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function selectCustomer(id) {
+  curId = id;
+  renderList();
+  const c = customers.find(x=>x.id===id);
+  if (!c) return;
+  const [custOrders, custAS] = await Promise.all([
+    fetch(`/api/customers/${id}/quotations`).then(r=>r.json()),
+    fetch(`/api/customers/${id}/as`).then(r=>r.json()),
+  ]);
+
+  const da = document.getElementById('detail-area');
+  da.innerHTML = `
+    <div class="border-b border-slate-200 bg-white px-5 py-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <h2 class="font-bold text-lg" id="d-name">${c.name}</h2>
+          <div class="text-xs text-slate-400 mt-0.5">${c.business_no||'사업자번호 미등록'}</div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="startEdit('${id}')" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50" id="edit-btn">✏️ 편집</button>
+          <button onclick="deleteCustomer('${id}')" class="text-xs px-3 py-1.5 border border-red-100 text-red-500 rounded-lg hover:bg-red-50">삭제</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 탭 -->
+    <div class="border-b border-slate-200 bg-white px-5 flex gap-4" id="ctabs">
+      <button class="ctab py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-t="info">기본정보</button>
+      <button class="ctab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-t="orders">거래이력 (${custOrders.length})</button>
+      <button class="ctab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-t="as">AS이력 (${custAS.length})</button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-5" id="ctab-content"></div>
+  `;
+
+  let tab = 'info';
+  const render = t => {
+    tab = t;
+    const tc = document.getElementById('ctab-content');
+    if (t==='info') renderInfo(tc, c);
+    else if (t==='orders') renderOrders(tc, custOrders);
+    else renderAS(tc, custAS);
+  };
+  render('info');
+
+  document.getElementById('ctabs').addEventListener('click', e => {
+    const btn = e.target.closest('.ctab');
+    if (!btn) return;
+    document.querySelectorAll('.ctab').forEach(b => {
+      b.className = 'ctab py-2 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
+    });
+    render(btn.dataset.t);
+  });
+}
+
+function renderInfo(tc, c) {
+  tc.innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <div class="grid grid-cols-2 gap-4 text-sm" id="info-view">
+        ${field('상호명', c.name)} ${field('대표자', c.rep)}
+        ${field('사업자번호', c.business_no)} ${field('전화', c.phone)}
+        ${field('이메일', c.email)} ${field('주소', (c.address_base||'')+(c.address_detail?' '+c.address_detail:''))}
+        ${field('등급', c.status)} ${field('단가그룹', c.price_group)}
+      </div>
+    </div>
+  `;
+}
+
+function field(label, val) {
+  return `<div><div class="text-xs text-slate-400 mb-0.5">${label}</div><div class="font-medium">${val||'—'}</div></div>`;
+}
+
+function renderOrders(tc, rows) {
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-8">거래 이력 없음</div>'; return; }
+  tc.innerHTML = `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50"><tr>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">번호</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">날짜</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">품목</th>
+        <th class="p-3 text-right text-xs font-medium text-slate-500">금액</th>
+        <th class="p-3 text-center text-xs font-medium text-slate-500">상태</th>
+      </tr></thead>
+      <tbody>${rows.map(o=>`<tr class="border-t border-slate-50 hover:bg-slate-50 cursor-pointer" onclick="location.href='/orders.html'">
+        <td class="p-3 text-xs text-slate-500">${o.no||'#'+o.id}</td>
+        <td class="p-3 text-xs">${o.date||''}</td>
+        <td class="p-3 text-xs truncate max-w-[200px]">${o.items||''}</td>
+        <td class="p-3 text-right text-xs font-semibold">${(o.total||0).toLocaleString()}원</td>
+        <td class="p-3 text-center"><span class="status-badge ${STATUS_CLS[o.order_status]||'s-draft'} text-xs px-2 py-0.5 rounded-full font-medium inline-block">${STATUS_LABEL[o.order_status]||o.order_status}</span></td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+function renderAS(tc, rows) {
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-8">AS 이력 없음</div>'; return; }
+  const col = { OPEN:'bg-red-100 text-red-700', IN_PROGRESS:'bg-yellow-100 text-yellow-700', DONE:'bg-green-100 text-green-700', CLOSED:'bg-slate-100 text-slate-500' };
+  tc.innerHTML = `<div class="flex flex-col gap-2">${rows.map(a=>`
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium">${a.issue||''}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${col[a.status]||col.OPEN}">${a.status}</span>
+      </div>
+      <div class="text-xs text-slate-400">${a.date||''} · ${a.urgency==='EMERGENCY'?'🚨 긴급':'일반'}</div>
+      ${a.desc?`<div class="text-xs text-slate-500 mt-1">${a.desc}</div>`:''}
+    </div>`).join('')}</div>`;
+}
+
+function startEdit(id) {
+  const c = customers.find(x=>x.id===id);
+  const tc = document.getElementById('ctab-content');
+  tc.innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        ${editField('상호명','name',c.name)} ${editField('대표자','rep',c.rep)}
+        ${editField('사업자번호','business_no',c.business_no)} ${editField('전화','phone',c.phone)}
+        ${editField('이메일','email',c.email)} ${editField('주소(기본)','address_base',c.address_base)}
+        ${editField('주소(상세)','address_detail',c.address_detail)} ${editField('단가그룹','price_group',c.price_group)}
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="selectCustomer('${id}')" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+        <button onclick="saveEdit('${id}')" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+      </div>
+    </div>`;
+}
+
+function editField(label, key, val) {
+  return `<div><label class="text-xs text-slate-500">${label}</label><input data-key="${key}" value="${val||''}" class="edit-field mt-1" style="border:1px solid #e2e8f0;border-radius:6px;padding:4px 8px;font-size:13px;width:100%"></div>`;
+}
+
+async function saveEdit(id) {
+  const c = customers.find(x=>x.id===id);
+  const patch = {};
+  document.querySelectorAll('[data-key]').forEach(el => { patch[el.dataset.key] = el.value; });
+  Object.assign(c, patch);
+  await fetch(`/api/customers/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch) });
+  renderList();
+  selectCustomer(id);
+}
+
+async function deleteCustomer(id) {
+  if (!confirm('삭제할까요?')) return;
+  await fetch(`/api/customers/${id}`, { method:'DELETE' });
+  customers = customers.filter(c=>c.id!==id);
+  curId = null;
+  renderList();
+  document.getElementById('detail-area').innerHTML = '<div class="flex-1 flex items-center justify-center text-slate-400 text-sm">← 고객을 선택하세요</div>';
+}
+
+function openAddModal() { document.getElementById('add-modal').classList.remove('hidden'); }
+function closeAddModal() { document.getElementById('add-modal').classList.add('hidden'); }
+
+async function addCustomer() {
+  const name = document.getElementById('am-name').value.trim();
+  if (!name) return alert('상호명을 입력하세요.');
+  const id = 'CUST-' + String(Date.now()).slice(-8);
+  const body = {
+    id, name, rep: document.getElementById('am-rep').value,
+    business_no: document.getElementById('am-bno').value,
+    phone: document.getElementById('am-phone').value,
+    email: document.getElementById('am-email').value,
+    address_base: document.getElementById('am-addr').value,
+    address_detail: '', address_post: '', status: 'NORMAL', price_group: 'A',
+    total_amount: 0, last_activity: new Date().toISOString().slice(0,10),
+  };
+  await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  customers.push(body);
+  closeAddModal();
+  ['am-name','am-rep','am-bno','am-phone','am-email','am-addr'].forEach(id => document.getElementById(id).value='');
+  renderList();
+  selectCustomer(id);
+}
+
+// 인라인 스타일 (status-badge용)
+const style = document.createElement('style');
+style.textContent = '.status-badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600}.s-draft{background:#dbeafe;color:#1d4ed8}.s-ordered{background:#ffedd5;color:#c2410c}.s-partial{background:#fef9c3;color:#854d0e}.s-shipped{background:#ede9fe;color:#6d28d9}.s-done{background:#dcfce7;color:#15803d}';
+document.head.appendChild(style);
+
+init();
+</script>
+</body>
+</html>

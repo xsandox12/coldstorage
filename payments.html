@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>입금 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 견적/주문</a>
+    <a href="/customers.html" class="nav-link">👤 고객</a>
+    <a href="/as.html" class="nav-link">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link active">💰 입금</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 flex flex-col overflow-hidden">
+  <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+    <h1 class="font-bold text-base">입금 관리</h1>
+    <button onclick="openModal()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-green-700">+ 입금 등록</button>
+  </div>
+
+  <!-- KPI -->
+  <div class="p-6 grid grid-cols-3 gap-4" id="kpi-row">
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-400 mb-1">총 미수금</div>
+      <div class="text-2xl font-bold text-red-600" id="kpi-unpaid">—</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-400 mb-1">미수 건수</div>
+      <div class="text-2xl font-bold text-orange-600" id="kpi-cnt">—</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+      <div class="text-xs text-slate-400 mb-1">이번달 입금</div>
+      <div class="text-2xl font-bold text-green-600" id="kpi-month">—</div>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="bg-white border-b border-slate-200 px-6 flex gap-4" id="main-tabs">
+    <button class="mtab py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-t="unpaid">미수금 현황</button>
+    <button class="mtab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-t="history">입금 이력</button>
+  </div>
+
+  <div class="flex-1 overflow-y-auto p-6" id="tab-content"></div>
+</div>
+
+<!-- 입금 등록 모달 -->
+<div id="pay-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[440px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">입금 등록</h2>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="flex flex-col gap-3">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">주문 선택 *</label>
+        <select id="m-order" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <option value="">-- 주문 선택 --</option>
+        </select>
+      </div>
+      <div id="m-order-info" class="hidden bg-slate-50 rounded-lg p-3 text-xs text-slate-600"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">입금액 *</label>
+          <input id="m-amount" type="number" placeholder="0" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">입금일 *</label>
+          <input id="m-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모</label>
+        <input id="m-note" type="text" placeholder="계약금 30%, 잔금..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="submitPayment()" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">등록</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let orders = [], payments = [], customers = [], curTab = 'unpaid';
+
+async function init() {
+  [orders, payments, customers] = await Promise.all([
+    fetch('/api/quotations').then(r=>r.json()),
+    fetch('/api/payments').then(r=>r.json()),
+    fetch('/api/customers').then(r=>r.json()),
+  ]);
+
+  // KPI
+  const unpaidOrders = orders.filter(o => o.order_status !== 'done' && (o.total||0) > (o.total_paid||0));
+  const totalUnpaid  = unpaidOrders.reduce((s,o) => s + ((o.total||0)-(o.total_paid||0)), 0);
+  const ym = new Date().toISOString().slice(0,7);
+  const monthPaid = payments.filter(p => (p.paid_at||'').startsWith(ym)).reduce((s,p)=>s+(p.amount||0),0);
+  document.getElementById('kpi-unpaid').textContent = totalUnpaid.toLocaleString() + '원';
+  document.getElementById('kpi-cnt').textContent    = unpaidOrders.length + '건';
+  document.getElementById('kpi-month').textContent  = monthPaid.toLocaleString() + '원';
+
+  // 모달 주문 목록 (미수 있는 것 우선)
+  const sel = document.getElementById('m-order');
+  const active = orders.filter(o => o.order_status !== 'done');
+  active.forEach(o => {
+    const c = customers.find(x=>x.id===o.customer_id);
+    const name = c ? c.name : (o.customer||'');
+    const unpaid = (o.total||0)-(o.total_paid||0);
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = `${o.no||'#'+o.id} ${name} (미수 ${unpaid.toLocaleString()}원)`;
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => {
+    const o = orders.find(x=>x.id===parseInt(sel.value));
+    const info = document.getElementById('m-order-info');
+    if (o) {
+      const c = customers.find(x=>x.id===o.customer_id);
+      info.innerHTML = `<b>${c?.name||o.customer||'—'}</b> | 합계 ${(o.total||0).toLocaleString()}원 | 입금 ${(o.total_paid||0).toLocaleString()}원 | <b class="text-red-600">미수 ${((o.total||0)-(o.total_paid||0)).toLocaleString()}원</b>`;
+      info.classList.remove('hidden');
+    } else { info.classList.add('hidden'); }
+  };
+
+  document.getElementById('m-date').value = new Date().toISOString().slice(0,10);
+  renderTab('unpaid');
+
+  document.getElementById('main-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.mtab');
+    if (!btn) return;
+    document.querySelectorAll('.mtab').forEach(b => {
+      b.className = 'mtab py-2 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
+    });
+    renderTab(btn.dataset.t);
+  });
+}
+
+function renderTab(t) {
+  curTab = t;
+  const tc = document.getElementById('tab-content');
+  if (t === 'unpaid') renderUnpaid(tc);
+  else renderHistory(tc);
+}
+
+function renderUnpaid(tc) {
+  const rows = orders.filter(o => (o.total||0) > (o.total_paid||0) && o.order_status !== 'done');
+  rows.sort((a,b) => ((b.total||0)-(b.total_paid||0)) - ((a.total||0)-(a.total_paid||0)));
+
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">미수금 없음 🎉</div>'; return; }
+
+  tc.innerHTML = `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50"><tr>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">고객</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">주문번호</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">날짜</th>
+        <th class="p-3 text-right text-xs font-medium text-slate-500">합계</th>
+        <th class="p-3 text-right text-xs font-medium text-slate-500">입금</th>
+        <th class="p-3 text-right text-xs font-medium text-slate-500">미수금</th>
+        <th class="p-3 text-center text-xs font-medium text-slate-500">상태</th>
+        <th class="p-3 w-20"></th>
+      </tr></thead>
+      <tbody>${rows.map(o => {
+        const c = customers.find(x=>x.id===o.customer_id);
+        const name = c ? c.name : (o.customer||'—');
+        const unpaid = (o.total||0) - (o.total_paid||0);
+        const pct = o.total ? Math.round(o.total_paid/o.total*100) : 0;
+        return `<tr class="border-t border-slate-50 hover:bg-slate-50">
+          <td class="p-3 font-medium">${name}</td>
+          <td class="p-3 text-xs text-slate-500">${o.no||'#'+o.id}</td>
+          <td class="p-3 text-xs text-slate-500">${o.date||''}</td>
+          <td class="p-3 text-right">${(o.total||0).toLocaleString()}</td>
+          <td class="p-3 text-right text-green-600">${(o.total_paid||0).toLocaleString()}</td>
+          <td class="p-3 text-right font-semibold text-red-600">${unpaid.toLocaleString()}</td>
+          <td class="p-3 text-center">
+            <div class="flex items-center gap-1 justify-center">
+              <div class="w-16 bg-slate-100 rounded-full h-1.5"><div class="bg-green-500 h-1.5 rounded-full" style="width:${pct}%"></div></div>
+              <span class="text-xs text-slate-400">${pct}%</span>
+            </div>
+          </td>
+          <td class="p-3 text-center"><button onclick="quickPay(${o.id})" class="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">입금</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+function renderHistory(tc) {
+  const rows = [...payments].sort((a,b) => (b.paid_at||'') > (a.paid_at||'') ? 1 : -1);
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">입금 이력 없음</div>'; return; }
+  tc.innerHTML = `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50"><tr>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">입금일</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">주문번호</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">고객</th>
+        <th class="p-3 text-right text-xs font-medium text-slate-500">금액</th>
+        <th class="p-3 text-left text-xs font-medium text-slate-500">메모</th>
+        <th class="p-3 w-10"></th>
+      </tr></thead>
+      <tbody>${rows.map(p => `<tr class="border-t border-slate-50 hover:bg-slate-50">
+        <td class="p-3 text-xs">${p.paid_at||'—'}</td>
+        <td class="p-3 text-xs text-slate-500">${p.no||'#'+p.order_id}</td>
+        <td class="p-3 text-xs">${p.customer||'—'}</td>
+        <td class="p-3 text-right font-semibold text-green-700">${(p.amount||0).toLocaleString()}원</td>
+        <td class="p-3 text-xs text-slate-500">${p.note||''}</td>
+        <td class="p-3 text-center"><button onclick="delPayment(${p.id},${p.order_id})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+function openModal(orderId) {
+  document.getElementById('pay-modal').classList.remove('hidden');
+  if (orderId) {
+    document.getElementById('m-order').value = orderId;
+    document.getElementById('m-order').dispatchEvent(new Event('change'));
+  }
+}
+function closeModal() { document.getElementById('pay-modal').classList.add('hidden'); }
+
+function quickPay(orderId) { openModal(orderId); }
+
+async function submitPayment() {
+  const orderId = parseInt(document.getElementById('m-order').value);
+  const amount  = parseInt(document.getElementById('m-amount').value);
+  if (!orderId || !amount) return alert('주문과 금액을 입력하세요.');
+  await fetch('/api/payments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    order_id: orderId, amount, paid_at: document.getElementById('m-date').value, note: document.getElementById('m-note').value
+  })});
+  closeModal();
+  [orders, payments] = await Promise.all([fetch('/api/quotations').then(r=>r.json()), fetch('/api/payments').then(r=>r.json())]);
+  init();
+}
+
+async function delPayment(id, orderId) {
+  if (!confirm('삭제할까요?')) return;
+  await fetch(`/api/payments/${id}`, { method:'DELETE' });
+  [orders, payments] = await Promise.all([fetch('/api/quotations').then(r=>r.json()), fetch('/api/payments').then(r=>r.json())]);
+  init();
+}
+
+init();
+</script>
+</body>
+</html>

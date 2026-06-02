@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A/S — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 견적/주문</a>
+    <a href="/customers.html" class="nav-link">👤 고객</a>
+    <a href="/as.html" class="nav-link active">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link">💰 입금</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 flex flex-col overflow-hidden">
+  <!-- 헤더 -->
+  <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+    <h1 class="font-bold text-base">A/S 관리</h1>
+    <button onclick="openModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ A/S 접수</button>
+  </div>
+
+  <!-- 필터 탭 -->
+  <div class="bg-white border-b border-slate-100 px-6 flex gap-3" id="filter-tabs">
+    <button class="as-tab py-3 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-s="all">전체</button>
+    <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="OPEN">미처리</button>
+    <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="IN_PROGRESS">처리중</button>
+    <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="DONE">완료</button>
+  </div>
+
+  <!-- 카드 목록 -->
+  <div class="flex-1 overflow-y-auto p-6">
+    <div id="as-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  </div>
+</div>
+
+<!-- 접수 모달 -->
+<div id="as-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[480px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">A/S 접수</h2>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="flex flex-col gap-3">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
+        <select id="m-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <option value="">-- 선택 --</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">고객명 (직접입력 / 미등록 거래처)</label>
+        <input id="m-cname" type="text" placeholder="고객명 직접 입력" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">연락처</label>
+          <input id="m-phone" type="text" placeholder="010-0000-0000" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">긴급도</label>
+          <select id="m-urgency" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="NORMAL">일반</option>
+            <option value="EMERGENCY">🚨 긴급</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">증상 / 요청사항 *</label>
+        <textarea id="m-issue" rows="3" placeholder="증상을 입력하세요..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"></textarea>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모</label>
+        <input id="m-desc" type="text" placeholder="추가 메모" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">접수일</label>
+        <input id="m-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="submitAS()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">접수</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let records = [], customers = [], curFilter = 'all';
+
+const STATUS_LABEL = { OPEN:'미처리', IN_PROGRESS:'처리중', DONE:'완료', CLOSED:'종료' };
+const STATUS_FLOW  = { OPEN:'IN_PROGRESS', IN_PROGRESS:'DONE', DONE:'CLOSED' };
+const STATUS_BTN   = { OPEN:'처리 시작', IN_PROGRESS:'완료 처리', DONE:'종료' };
+const STATUS_COLOR = {
+  OPEN:        'bg-red-50 border-red-200',
+  IN_PROGRESS: 'bg-orange-50 border-orange-200',
+  DONE:        'bg-green-50 border-green-200',
+  CLOSED:      'bg-slate-50 border-slate-200',
+};
+const BADGE = {
+  OPEN:        'bg-red-100 text-red-700',
+  IN_PROGRESS: 'bg-orange-100 text-orange-700',
+  DONE:        'bg-green-100 text-green-700',
+  CLOSED:      'bg-slate-100 text-slate-500',
+};
+
+async function init() {
+  [records, customers] = await Promise.all([
+    fetch('/api/as_records').then(r=>r.json()),
+    fetch('/api/customers').then(r=>r.json()),
+  ]);
+  records.sort((a,b) => b.date > a.date ? 1 : -1);
+  // 모달 고객 목록
+  const sel = document.getElementById('m-cust');
+  customers.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  document.getElementById('m-date').value = new Date().toISOString().slice(0,10);
+  // 고객 선택 시 이름 자동
+  sel.onchange = () => {
+    const c = customers.find(x=>x.id===sel.value);
+    if (c) { document.getElementById('m-cname').value = c.name; document.getElementById('m-phone').value = c.phone||''; }
+  };
+  renderList();
+}
+
+function filtered() {
+  if (curFilter === 'all') return records;
+  return records.filter(r => r.status === curFilter);
+}
+
+function renderList() {
+  const list = document.getElementById('as-list');
+  const rows = filtered();
+  if (!rows.length) { list.innerHTML = '<div class="col-span-3 text-center text-slate-400 text-sm py-12">접수된 A/S가 없습니다</div>'; return; }
+  list.innerHTML = rows.map(a => {
+    const next = STATUS_FLOW[a.status];
+    return `<div class="bg-white rounded-xl border ${STATUS_COLOR[a.status]||STATUS_COLOR.CLOSED} p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="font-semibold text-sm">${a.cust_name || '—'}</div>
+          <div class="text-xs text-slate-400">${a.phone||''}</div>
+        </div>
+        <div class="flex flex-col items-end gap-1">
+          <span class="text-xs px-2 py-0.5 rounded-full font-medium ${BADGE[a.status]||BADGE.CLOSED}">${STATUS_LABEL[a.status]||a.status}</span>
+          ${a.urgency==='EMERGENCY'?'<span class="text-xs text-red-500 font-semibold">🚨 긴급</span>':''}
+        </div>
+      </div>
+      <div class="text-sm text-slate-700 mb-3">${a.issue||''}</div>
+      ${a.desc?`<div class="text-xs text-slate-500 bg-slate-50 rounded p-2 mb-3">${a.desc}</div>`:''}
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-slate-400">${a.date||''}</span>
+        <div class="flex gap-2">
+          ${next ? `<button onclick="advance('${a.id}','${next}')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">${STATUS_BTN[a.status]||'→'}</button>` : ''}
+          <button onclick="deleteAS('${a.id}')" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">삭제</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// 필터 탭
+document.getElementById('filter-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.as-tab');
+  if (!btn) return;
+  curFilter = btn.dataset.s;
+  document.querySelectorAll('.as-tab').forEach(b => {
+    b.className = 'as-tab py-3 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
+  });
+  renderList();
+});
+
+async function advance(id, next) {
+  await fetch(`/api/as_records/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:next }) });
+  const r = records.find(x=>x.id===id);
+  if (r) r.status = next;
+  renderList();
+}
+
+async function deleteAS(id) {
+  if (!confirm('삭제할까요?')) return;
+  await fetch(`/api/as_records/${id}`, { method:'DELETE' });
+  records = records.filter(r=>r.id!==id);
+  renderList();
+}
+
+function openModal() { document.getElementById('as-modal').classList.remove('hidden'); }
+function closeModal() { document.getElementById('as-modal').classList.add('hidden'); }
+
+async function submitAS() {
+  const issue = document.getElementById('m-issue').value.trim();
+  if (!issue) return alert('증상을 입력하세요.');
+  const custId = document.getElementById('m-cust').value;
+  const custName = document.getElementById('m-cname').value.trim() ||
+    (customers.find(c=>c.id===custId)?.name || '');
+  const body = {
+    id: 'AS-' + Date.now(),
+    cust_id: custId, cust_name: custName,
+    phone: document.getElementById('m-phone').value,
+    urgency: document.getElementById('m-urgency').value,
+    issue, desc: document.getElementById('m-desc').value,
+    status: 'OPEN', type: 'NORMAL',
+    date: document.getElementById('m-date').value,
+  };
+  await fetch('/api/as_records', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  records.unshift(body);
+  closeModal();
+  ['m-cname','m-phone','m-issue','m-desc'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m-cust').value='';
+  document.getElementById('m-urgency').value='NORMAL';
+  renderList();
+}
+
+init();
+</script>
+</body>
+</html>
