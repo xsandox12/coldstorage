@@ -180,7 +180,7 @@ function renderCatTree() {
     if (selCat1 === c1) {
       uniq(products.filter(p => p.cat1 === c1).map(p => p.cat2)).forEach(c2 => {
         const c2cnt = products.filter(p => p.cat1 === c1 && p.cat2 === c2).length;
-        html += `<div class="cat-sub ${selCat2===c2?'sel':''}" onclick="event.stopPropagation();selCat2(${JSON.stringify(c2)})">
+        html += `<div class="cat-sub ${selCat2===c2?'sel':''}" onclick="event.stopPropagation();setSubCat(${JSON.stringify(c2)})">
           <span>${c2}</span><span class="text-xs opacity-60">${c2cnt}</span>
         </div>`;
       });
@@ -196,7 +196,7 @@ function renderSubTabs() {
   if (!cat2s.length) { tabs.innerHTML = ''; return; }
   tabs.innerHTML = [null, ...cat2s].map(c2 => {
     const active = selCat2 === c2;
-    return `<button onclick="selCat2(${c2 ? JSON.stringify(c2) : 'null'})"
+    return `<button onclick="setSubCat(${c2 ? JSON.stringify(c2) : 'null'})"
       class="px-3 py-2.5 text-xs font-medium border-b-2 shrink-0 transition-colors ${active ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}">
       ${c2 || '전체'}
     </button>`;
@@ -233,7 +233,7 @@ function render() {
 function renderAll() { renderCatTree(); renderSubTabs(); render(); updateDL(); }
 
 function selCat(c1) { selCat1 = c1; selCat2 = null; renderAll(); }
-function selCat2(c2) { selCat2 = c2; renderAll(); }
+function setSubCat(c2) { selCat2 = c2; renderAll(); }
 
 function updateDL() {
   const fill = (id, vals) => { const dl = document.getElementById(id); if (dl) dl.innerHTML = vals.map(v => `<option value="${v}">`).join(''); };
