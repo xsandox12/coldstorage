@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
-COPY package.json ./
-COPY *.html *.js ./
-COPY db/ ./db/
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY . .
 EXPOSE 9000
 CMD ["node", "server.js"]

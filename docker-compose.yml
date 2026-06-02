@@ -5,8 +5,8 @@ services:
     ports:
       - "9000:9000"
     volumes:
-      - coldstorage-db:/app/db
+      - coldstorage-data:/app/data
     restart: unless-stopped
 
 volumes:
-  coldstorage-db:
+  coldstorage-data:
