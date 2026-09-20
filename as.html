@@ -51,6 +51,7 @@
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="OPEN">미처리</button>
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="IN_PROGRESS">처리중</button>
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="DONE">완료</button>
+    <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="CLOSED">종료</button>
   </div>
 
   <!-- 카드 목록 -->
@@ -174,8 +175,8 @@ function renderList() {
       <div class="flex items-center justify-between">
         <span class="text-xs text-slate-400">${esc(a.date||'')}</span>
         <div class="flex gap-2">
-          ${next ? `<button onclick="guard(this, () => advance('${a.id}','${next}'))" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">${STATUS_BTN[a.status]||'→'}</button>` : ''}
-          <button onclick="deleteAS('${a.id}')" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">삭제</button>
+          ${next ? `<button onclick="guard(this, () => advance('${esc(a.id)}','${next}'))" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">${STATUS_BTN[a.status]||'→'}</button>` : ''}
+          <button onclick="deleteAS('${esc(a.id)}')" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">삭제</button>
         </div>
       </div>
     </div>`;

@@ -327,14 +327,27 @@ function addItemRow() {
   curItems.push({ name:'', spec:'', unit:'EA', qty:0, unit_price:0, received_qty:0, note:'' });
   renderTab('items');
 }
-function removeItem(i) { curItems.splice(i, 1); renderTab('items'); }
+function removeItem(i) {
+  const it = curItems[i];
+  if ((it?.received_qty || 0) > 0 &&
+      !confirm(`"${it.name || '이 품목'}" 은 이미 ${qty(it.received_qty)} 입고됐습니다.\n삭제는 거부됩니다. 그래도 행을 지울까요?`)) return;
+  curItems.splice(i, 1); renderTab('items');
+}
 
 async function saveItems() {
-  await api.put(`/api/purchase_items/purchase/${curId}`, curItems);
+  // 서버가 입고분보다 적은 수량·입고 이력 있는 품목 삭제를 400 으로 막는다.
+  const bad = curItems.filter(it => (it.received_qty || 0) > (it.qty || 0));
+  if (bad.length) {
+    toast(`입고된 수량보다 적게 줄일 수 없습니다.\n${bad.map(it=>`· ${it.name}: 입고 ${qty(it.received_qty)}`).join('\n')}`, 'error');
+    return;
+  }
+  const received = curItems.filter(it => (it.received_qty || 0) > 0);
+  if (received.length && !confirm(`입고 이력이 있는 품목 ${received.length}건이 포함돼 있습니다.\n저장하시겠습니까?`)) return;
+  if (!await tryApi(() => api.put(`/api/purchase_items/purchase/${curId}`, curItems), '저장됐습니다.')) return;
   purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
-  alert('저장됐습니다.');
+  await selectPurchase(curId);   // received_qty 는 서버가 원장에서 재계산한다
 }
 
 function renderPaymentsTab(tc) {
@@ -442,10 +455,13 @@ function renderReceiptsTab(tc) {
 }
 
 async function submitReceiptItem(itemId, purchaseId) {
-  const qty = parseFloat(document.getElementById(`recv-${itemId}`).value);
-  if (!qty || qty <= 0) return alert('수량을 입력하세요.');
-  await api.post('/api/purchase_receipts', {
-    purchase_id: purchaseId, item_id: itemId, qty, received_at: today()});
+  const n = parseFloat(document.getElementById(`recv-${itemId}`).value);
+  if (!(n > 0)) return toast('수량을 입력하세요.', 'error');
+  const it = curItems.find(x => x.id === itemId);
+  const remain = (it?.qty || 0) - (it?.received_qty || 0);
+  if (n > remain) return toast(`잔여 수량 ${qty(remain)} 을 초과했습니다.`, 'error');
+  if (!await tryApi(() => api.post('/api/purchase_receipts', {
+    purchase_id: purchaseId, item_id: itemId, qty: n, received_at: today() }), '입고됐습니다.')) return;
   [curItems, purchases] = await Promise.all([
     api.get(`/api/purchase_items/purchase/${purchaseId}`),
     api.get('/api/purchases'),

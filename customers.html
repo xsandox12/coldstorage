@@ -108,10 +108,15 @@ function renderList() {
   const list = document.getElementById('cust-list');
   const rows = filtered();
   if (!rows.length) { list.innerHTML = '<div class="p-6 text-center text-slate-400 text-sm">검색 결과 없음</div>'; return; }
+  // 고객마다 orders/asRecords 를 전부 훑으면 O(고객수 × 건수)다. 렌더는 검색 입력마다
+  // 호출되므로 건수를 한 번만 집계해 둔다.
+  const count = arr => arr.reduce((m, r) => { const k = r.customer_id ?? r.cust_id;
+    m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
+  const ordCnt = count(orders), asCnt = count(asRecords);
   list.innerHTML = rows.map(c => {
-    const oc = orders.filter(o=>o.customer_id===c.id).length;
-    const ac = asRecords.filter(a=>a.cust_id===c.id).length;
-    return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===c.id?'row-sel':''}" onclick="selectCustomer('${c.id}')">
+    const oc = ordCnt.get(c.id) || 0;
+    const ac = asCnt.get(c.id) || 0;
+    return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===c.id?'row-sel':''}" onclick="selectCustomer('${esc(c.id)}')">
       <div class="font-medium text-sm truncate">${esc(c.name)}</div>
       <div class="text-xs text-slate-400 mt-0.5">${esc(c.rep||'')} ${c.phone?'· '+esc(c.phone):''}</div>
       <div class="flex gap-2 mt-1 text-xs text-slate-400">
@@ -141,8 +146,8 @@ async function selectCustomer(id) {
           <div class="text-xs text-slate-400 mt-0.5">${esc(c.business_no||'사업자번호 미등록')}</div>
         </div>
         <div class="flex gap-2">
-          <button onclick="startEdit('${id}')" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50" id="edit-btn">✏️ 편집</button>
-          <button onclick="deleteCustomer('${id}')" class="text-xs px-3 py-1.5 border border-red-100 text-red-500 rounded-lg hover:bg-red-50">삭제</button>
+          <button onclick="startEdit('${esc(id)}')" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50" id="edit-btn">✏️ 편집</button>
+          <button onclick="deleteCustomer('${esc(id)}')" class="text-xs px-3 py-1.5 border border-red-100 text-red-500 rounded-lg hover:bg-red-50">삭제</button>
         </div>
       </div>
     </div>
@@ -242,8 +247,8 @@ function startEdit(id) {
         ${editField('주소(상세)','address_detail',c.address_detail)} ${editField('단가그룹','price_group',c.price_group)}
       </div>
       <div class="flex justify-end gap-2 mt-4">
-        <button onclick="selectCustomer('${id}')" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-        <button onclick="guard(this, () => saveEdit('${id}'))" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+        <button onclick="selectCustomer('${esc(id)}')" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+        <button onclick="guard(this, () => saveEdit('${esc(id)}'))" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
       </div>
     </div>`;
 }
