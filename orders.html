@@ -390,14 +390,14 @@ async function selectOrder(id) {
             <button onclick="guard(this, () => uncompleteOrder(${order.id}))" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200"
                     title="완료 처리를 되돌립니다 (출고 기록에 맞는 상태로 돌아갑니다)">완료 해제</button>
           ` : ''}
-          ${!isCancelled ? `
+          ${isCancelled ? `
+            <button onclick="uncancelOrder(${order.id})" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200">취소 해제</button>
+          ` : order.order_status === 'done' ? '' /* 완료에서 나가는 길은 "완료 해제" 하나뿐 */ : `
             <select onchange="changeStatus(${order.id},this.value);this.value=''" class="text-xs px-2 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg cursor-pointer focus:outline-none focus:border-blue-400">
               <option value="">상태변경</option>
               ${ALL_STATUSES.filter(s=>s.v!==order.order_status).map(s=>`<option value="${s.v}">${s.l}</option>`).join('')}
             </select>
             <button onclick="openCancelModal(${order.id})" class="text-xs px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100">거래 취소</button>
-          ` : `
-            <button onclick="uncancelOrder(${order.id})" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200">취소 해제</button>
           `}
           <button onclick="openDrawingModal(${order.id})"
                   class="text-xs px-3 py-1.5 border rounded-lg hover:bg-slate-50 ${order.drawing_id ? 'border-blue-300 text-blue-700 bg-blue-50' : 'border-slate-200'}"
@@ -1094,18 +1094,23 @@ async function createFromQuotations() {
   if (!items_from.length && !extraValid.length) return alert('견적서에서 품목을 선택하거나 추가 품목을 입력하세요.');
 
   const cust = customers.find(c=>c.id===custId);
-  const r = await api.post('/api/quotations/from-quotations', {
+  // api.post 는 이미 파싱된 JSON 을 돌려준다. 여기서 .json() 을 한 번 더 부르면
+  // TypeError 가 나서 모달이 닫히지도, 목록이 갱신되지도 않았다.
+  let r;
+  try {
+    r = await api.post('/api/quotations/from-quotations', {
       customer_id: custId, customer: cust?.name||'',
       no: document.getElementById('compose-no').value,
       date: document.getElementById('compose-date').value,
       items_from, additional_items: extraValid,
-    }).then(r=>r.json());
+    });
+  } catch (e) { return toast(e.message, 'error'); }
 
   closeNewModal();
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  if (r.id) selectOrder(r.id);
+  if (r?.id) selectOrder(r.id);
 }
 
 // ─── 출고 묶음 ───────────────────────────────────────────────

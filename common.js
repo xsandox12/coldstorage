@@ -155,7 +155,9 @@ document.addEventListener('keydown', e => {
   if (['checkbox','radio','button','submit'].includes(el.type)) return;
   const modal = el.closest('[id$="modal"]');
   if (!modal || modal.classList.contains('hidden')) return;
-  const btns = modal.querySelectorAll('button');
+  // 보이는 버튼만 — 판매 새 모달은 탭 두 개가 한 모달 안에 있어, 숨은 탭의
+  // 확인 버튼을 누르면 보고 있지도 않은 경로가 실행된다 (click 은 그래도 먹는다)
+  const btns = [...modal.querySelectorAll('button')].filter(b => b.offsetParent !== null);
   const ok = btns[btns.length - 1];
   if (!ok || ok.disabled) return;
   e.preventDefault();

@@ -9,12 +9,12 @@ Node.js 순수 `http` 모듈 + `better-sqlite3`. 프론트는 빌드 도구 없�
 
 ```bash
 npm install
-node server.js          # http://localhost:9000
+ADMIN_PASSWORD=원하는비밀번호 node server.js     # http://localhost:9000
 ```
 
-`.env` 없이 처음 띄우면 `admin` / `0000` 계정이 만들어진다. **접속한 뒤 `/account.html`
-에서 바로 바꿀 것** — 최초 계정 생성은 `users` 테이블이 비어 있을 때만 동작하므로,
-한 번 바꾸면 `.env` 의 값은 더 이상 쓰이지 않는다.
+데이터가 비어 있으면 첫 기동에 `ADMIN_USER`(기본 `admin`) 계정이 만들어진다.
+**`ADMIN_PASSWORD` 를 주지 않으면 계정이 생기지 않아 아무도 로그인할 수 없다.**
+계정이 한 번 만들어진 뒤에는 이 값이 무시되므로, 비밀번호는 `/account.html` 에서 바꾼다.
 
 환경변수는 `.env.example` 참고. `PORT`, `DATA_DIR` 로 포트와 데이터 위치를 바꿀 수 있다.
 
@@ -35,6 +35,10 @@ bash test/smoke.sh
 ```bash
 cd ~/coldstorage && git pull && docker compose up -d --build
 ```
+
+Compose 는 `.env` 가 비어 있을 때 `APP_PASSWORD` 기본값 `0000` 으로 최초 관리자를
+만든다 — 아무도 로그인 못 하는 상태로 배포되는 것을 막기 위한 값이다.
+**배포 직후 `/account.html` 에서 반드시 바꿀 것.**
 
 **비밀번호는 커밋하지 않는다.** 공개 저장소이므로 실제 값은 서버의 `~/coldstorage/.env`
 에만 두고, 바꿀 때도 그 파일을 고친 뒤 `docker compose up -d` 한다.
