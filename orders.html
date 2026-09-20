@@ -979,14 +979,10 @@ window.addEventListener('message', async e => {
 
 // ─── 새 견적 생성 (신규) ─────────────────────────────────────
 function openNewModal() {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth()+1).padStart(2,'0');
-  const dd = String(now.getDate()).padStart(2,'0');
-  const cnt = orders.filter(o => o.date === today()).length + 1;
-  const autoNo = `${yy}/${mm}/${dd}-${cnt}`;
-  document.getElementById('new-no').value = autoNo;
-  document.getElementById('compose-no').value = autoNo;
+  // 번호는 비워 두면 서버가 매긴다. 화면의 orders 는 다른 사람이 만든 건을
+  // 모를 수 있어, 여기서 세면 같은 번호를 두 건에 붙이게 된다.
+  document.getElementById('new-no').value = '';
+  document.getElementById('compose-no').value = '';
   document.getElementById('new-modal').classList.remove('hidden');
   switchNewTab('plain');
 }
@@ -999,8 +995,8 @@ async function createOrder() {
   const memo   = document.getElementById('new-memo').value;
   if (!custId) return alert('고객을 선택하세요.');
   const cust = customers.find(c=>c.id===custId);
-  const body = { no, date, customer_id: custId, customer: cust?.name||'', items: memo, total:0, order_status:'draft', total_paid:0, ref:'한남냉동테크(주)', status:'진행중', items_json:'[]' };
-  const r = await api.post('/api/quotations', body);
+  // 번호가 비면 서버가 매긴다. 상태·총액·자사 정보도 서버가 정한다.
+  await api.post('/api/quotations', { no, date, customer_id: custId, customer: cust?.name||'', memo });
   closeNewModal();
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);

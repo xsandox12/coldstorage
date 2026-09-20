@@ -191,10 +191,12 @@ check "이력 조회에 취소 기록"     "true" \
 # tracksUnpaid 가 draft 를 제외하므로 계약금만 받은 주문의 미수금이 증발한다.
 STAMP2="ZZSMOKE2-$$"
 body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
-     -d "{\"no\":\"$STAMP2\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\",\"order_status\":\"ordered\",\"total\":0,\"total_paid\":0}" >/dev/null
+     -d "{\"no\":\"$STAMP2\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\"}" >/dev/null
 OID2=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP2').pop().id")
 body -X PUT "$BASE/api/order_items/order/$OID2" -H 'Content-Type: application/json' \
      -d '[{"name":"미출고품목","qty":5,"unit_price":10000}]' >/dev/null
+# 새 주문은 항상 draft 로 시작한다. 상태는 전이 검사를 거쳐서만 올라간다.
+code -X PATCH "$BASE/api/quotations/$OID2/status" -H 'Content-Type: application/json' -d '{"status":"ordered"}' >/dev/null
 code -X PATCH "$BASE/api/quotations/$OID2/cancel" -H 'Content-Type: application/json' \
      -d '{"reason":"출고전 취소"}' >/dev/null
 code -X PATCH "$BASE/api/quotations/$OID2/uncancel" >/dev/null
@@ -232,6 +234,12 @@ check "도면 저장 -> 200"          200 "$(code -X POST "$BASE/api/drawings" -
 check "  다시 읽힘"               "true" \
       "$(body "$BASE/api/drawings" | jsonq "JSON.parse(s).some(d=>Number(d.id)===$DRAWID)")"
 check "  state 보존"              5000 "$(body "$BASE/api/drawings" | jsonq "(d=>d&&d.state?d.state.w:'')(JSON.parse(s).find(x=>Number(x.id)===$DRAWID))")"
+# 숫자 id 가 TEXT PK 에 "…​.0" 으로 저장되면 아래 두 개가 영영 맞지 않는다
+check "  id 가 소수점 없이 저장"  "$DRAWID" \
+      "$(body "$BASE/api/drawings" | jsonq "String(JSON.parse(s).find(d=>Number(d.id)===$DRAWID).id)")"
+code -X PATCH "$BASE/api/drawings/$DRAWID" -H 'Content-Type: application/json' -d '{}' >/dev/null
+check "★ 즐겨찾기 토글"           "true" \
+      "$(body "$BASE/api/drawings" | jsonq "JSON.parse(s).find(d=>Number(d.id)===$DRAWID).starred")"
 code -X DELETE "$BASE/api/drawings/$DRAWID" >/dev/null
 check "  삭제됨"                  "true" \
       "$(body "$BASE/api/drawings" | jsonq "JSON.parse(s).every(d=>Number(d.id)!==$DRAWID)")"
@@ -401,6 +409,28 @@ OID4=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STA
 check "★ 삭제 후 재사용 id 가 이력을 물려받지 않음" 0 \
       "$(body "$BASE/api/quotations/$OID4/history" | jsonq 'JSON.parse(s).changes.length')"
 code -X DELETE "$BASE/api/quotations/$OID4" >/dev/null
+
+# ── Phase 5: 채번 ───────────────────────────────────────────
+echo
+echo "[Phase 5 채번]"
+mkorder() { body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+                 -d "{\"customer\":\"__seq__\"}" | jsonq 'JSON.parse(s).id'; }
+noof()   { body "$BASE/api/quotations/$1" | jsonq 'JSON.parse(s).no'; }
+S1=$(mkorder); S2=$(mkorder)
+N1=$(noof "$S1"); N2=$(noof "$S2")
+check "번호를 서버가 매김"        "true" "$([ -n "$N1" ] && echo true || echo false)"
+check "  연속 생성 시 번호가 다름" "true" "$([ "$N1" != "$N2" ] && echo true || echo false)"
+code -X DELETE "$BASE/api/quotations/$S1" >/dev/null
+S3=$(mkorder); N3=$(noof "$S3")
+# COUNT 기반이면 중간 건 삭제 후 번호가 되돌아가 N2 와 겹친다
+check "★ 중간 건 삭제 후에도 번호가 겹치지 않음" "true" \
+      "$([ "$N3" != "$N2" ] && echo true || echo false)"
+check "  중복 번호 직접 지정 -> 409" 409 \
+      "$(code -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' -d "{\"no\":\"$N2\"}")"
+check "  자사 상호는 설정에서"    "true" \
+      "$(body "$BASE/api/quotations/$S3" | jsonq "JSON.parse(s).ref !== undefined")"
+code -X DELETE "$BASE/api/quotations/$S2" >/dev/null
+code -X DELETE "$BASE/api/quotations/$S3" >/dev/null
 
 # ── 정리 ────────────────────────────────────────────────────
 echo

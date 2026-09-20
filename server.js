@@ -254,6 +254,15 @@ db.exec(`
   DELETE FROM quotation_sources WHERE order_id NOT IN (SELECT id FROM quotations);
 `);
 
+/* 판매번호 중복 방지. COUNT 기반 채번이 이미 운영에 나가 있어 기존 데이터에
+ * 중복이 있을 수 있다 — 인덱스 생성 실패로 서버가 못 뜨는 일이 없도록 감싼다. */
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_no ON quotations(no)`);
+} catch (e) {
+  const dups = db.prepare(`SELECT no FROM quotations GROUP BY no HAVING COUNT(*) > 1`).all();
+  console.error('판매번호 중복이 있어 UNIQUE 인덱스를 만들지 못했습니다:', dups.map(d => d.no).join(', '));
+}
+
 // 숫자로 들어와 "…​.0" 으로 저장돼 버린 도면 id 를 정상화한다 (drawingId 참고).
 // 이미 정상 id 가 따로 있으면 PK 가 충돌하므로 건드리지 않는다. 멱등.
 db.exec(`
@@ -705,6 +714,31 @@ const ORDER_FLOW = {
 };
 const canTransit = (from, to) => from === to || (ORDER_FLOW[from] || []).includes(to);
 
+/* 채번은 COUNT 가 아니라 MAX 로 한다. COUNT 기반은 중간 건이 삭제되면 번호가
+ * 되돌아가 직전 번호와 그대로 겹친다 — 오늘 주문 2건을 만들고 1건을 지우면
+ * 다음 주문이 다시 -2 가 된다. 출고·완료 묶음도 삭제 API 가 생겨 같은 경로다. */
+function nextSeq(table, col, prefix) {
+  const row = db.prepare(
+    `SELECT MAX(CAST(substr(${col}, ?) AS INTEGER)) AS m FROM ${table} WHERE ${col} LIKE ?`
+  ).get(prefix.length + 1, `${prefix}%`);
+  return (row?.m || 0) + 1;
+}
+
+/** 오늘 날짜 기준 다음 판매번호. YY/MM/DD-N */
+function nextOrderNo(now = new Date()) {
+  const mm = String(now.getMonth()+1).padStart(2,'0');
+  const dd = String(now.getDate()).padStart(2,'0');
+  const prefix = `${String(now.getFullYear()).slice(2)}/${mm}/${dd}-`;
+  return `${prefix}${nextSeq('quotations', 'no', prefix)}`;
+}
+
+/** blobs 의 settings. 공급자(자사) 정보가 여기 있다 — 코드에 상호를 박지 않는다. */
+function settingsBlob() {
+  try { return JSON.parse(db.prepare(`SELECT value FROM blobs WHERE key='settings'`).get()?.value || '{}'); }
+  catch { return {}; }
+}
+const companyName = () => settingsBlob().company?.name || '';
+
 function recordStatusChange(orderId, fromStatus, toStatus, reason, user) {
   // user_name 을 함께 박아둔다 — 계정을 지워도 이력에 누가 했는지는 남아야 한다
   db.prepare('INSERT INTO status_changes (order_id,from_status,to_status,reason,user_id,user_name) VALUES (?,?,?,?,?,?)')
@@ -960,8 +994,7 @@ async function handle(req, res) {
                               WHERE q.id=?`).get(id);
     if (!order) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
     delete order.memo_internal;   // 내부 메모는 고객에게 나가는 문서에 넣지 않는다
-    let settings = {};
-    try { settings = JSON.parse(db.prepare(`SELECT value FROM blobs WHERE key='settings'`).get()?.value || '{}'); } catch {}
+    const settings = settingsBlob();
     return json(res, 200, {
       order,
       items: db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(id),
@@ -1352,6 +1385,24 @@ async function handle(req, res) {
     return json(res, 200, { ok:true });
   }
 
+  // ── POST /api/quotations ─────────────────────────────────────
+  // 판매번호는 서버가 매긴다. 화면에서 만들면 목록이 낡은 순간 겹치고,
+  // 두 사람이 동시에 새 판매서를 열면 같은 번호를 본다.
+  if (pathname === '/api/quotations' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!body) return json(res, 400, { ok:false });
+    if (body.no && db.prepare('SELECT 1 FROM quotations WHERE no=?').get(body.no))
+      return json(res, 409, { ok:false, error:'이미 있는 판매번호입니다.' });
+    const cust = db.prepare('SELECT * FROM customers WHERE id=?').get(body.customer_id||'');
+    const r = db.prepare(`INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status,created_by)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      body.no || nextOrderNo(), body.date || today(), body.customer_id||'',
+      cust?.name || body.customer || '', 'draft', 0, 0, body.memo || body.items || '',
+      companyName(), '진행중', req.user.name || req.user.username
+    );
+    return json(res, 200, { ok:true, ...getOne(TABLES.quotations, r.lastInsertRowid) });
+  }
+
   // ── POST /api/quotations/from-quotations ─────────────────────
   if (pathname === '/api/quotations/from-quotations' && method === 'POST') {
     const body = await parseBody(req);
@@ -1360,11 +1411,12 @@ async function handle(req, res) {
     const mm = String(now.getMonth()+1).padStart(2,'0');
     const dd = String(now.getDate()).padStart(2,'0');
     const today = `${now.getFullYear()}-${mm}-${dd}`;
-    const cnt = db.prepare('SELECT COUNT(*) as n FROM quotations WHERE date=?').get(today).n + 1;
-    const no = body.no || `${String(now.getFullYear()).slice(2)}/${mm}/${dd}-${cnt}`;
+    if (body.no && db.prepare('SELECT 1 FROM quotations WHERE no=?').get(body.no))
+      return json(res, 409, { ok:false, error:'이미 있는 판매번호입니다.' });
+    const no = body.no || nextOrderNo(now);
     const cust = db.prepare('SELECT * FROM customers WHERE id=?').get(body.customer_id||'');
     const r = db.prepare('INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
-      no, body.date||today, body.customer_id||'', cust?.name||body.customer||'', 'draft', 0, 0, body.memo||'', '한남냉동테크(주)', '진행중',
+      no, body.date||today, body.customer_id||'', cust?.name||body.customer||'', 'draft', 0, 0, body.memo||'', companyName(), '진행중',
       req.user.name || req.user.username
     );
     const newId = r.lastInsertRowid;
@@ -1404,8 +1456,7 @@ async function handle(req, res) {
       if (!body || !body.items?.length) return json(res, 400, { ok:false, error:'items 필수' });
       const now = new Date();
       const ds = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-      const cnt = db.prepare('SELECT COUNT(*) as n FROM shipment_batches WHERE batch_no LIKE ?').get(`SB${ds}%`).n + 1;
-      const batch_no = `SB${ds}${String(cnt).padStart(3,'0')}`;
+      const batch_no = `SB${ds}${String(nextSeq('shipment_batches','batch_no',`SB${ds}`)).padStart(3,'0')}`;
       const br = db.prepare('INSERT INTO shipment_batches (batch_no,shipped_at,note) VALUES (?,?,?)').run(batch_no, body.shipped_at||'', body.note||'');
       const batchId = br.lastInsertRowid;
       db.transaction(() => {
@@ -1455,8 +1506,7 @@ async function handle(req, res) {
       const ds = today().replace(/-/g, '');
       let batchId, batch_no;
       db.transaction(() => {
-        const cnt = db.prepare('SELECT COUNT(*) as n FROM completion_batches WHERE batch_no LIKE ?').get(`CB${ds}%`).n + 1;
-        batch_no = `CB${ds}${String(cnt).padStart(3,'0')}`;
+        batch_no = `CB${ds}${String(nextSeq('completion_batches','batch_no',`CB${ds}`)).padStart(3,'0')}`;
         batchId = db.prepare('INSERT INTO completion_batches (batch_no,completed_at,note) VALUES (?,?,?)')
                     .run(batch_no, body.completed_at||today(), body.note||'').lastInsertRowid;
         for (const cur of targets) {
