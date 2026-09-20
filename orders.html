@@ -77,6 +77,18 @@
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="done">완료</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="cancelled">취소</button>
       </div>
+      <!-- 검색 / 기간 — 지금까지 고객명이나 판매번호로 찾을 방법이 없었다 -->
+      <input id="search" type="text" placeholder="고객, 판매번호, 품목 검색…" autocomplete="off"
+             class="w-full mt-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      <div class="flex items-center gap-1 mt-2">
+        <input id="from" type="date" class="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs">
+        <span class="text-xs text-slate-400">~</span>
+        <input id="to" type="date" class="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs">
+        <button onclick="clearFilters()" title="검색 조건 지우기"
+                class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">초기화</button>
+        <button onclick="exportOrders()" title="현재 조건으로 엑셀(CSV) 내보내기"
+                class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV</button>
+      </div>
     </div>
     <!-- 목록 -->
     <div id="order-list" class="flex-1 overflow-y-auto divide-y divide-slate-50"></div>
@@ -267,26 +279,48 @@ async function init() {
   ]);
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  const today = today();
-  // 고객 선택 옵션 공통 채우기
+  // const today = today() 로 자기 자신을 가려 TDZ 오류가 났고, 그 뒤 두 줄이
+  // 실행되지 않아 새 판매 모달의 날짜가 비어 있었다.
+  const d = today();
+  // 고객 선택 옵션 — init() 이 다시 불려도 옵션이 쌓이지 않도록 매번 새로 채운다
   ['new-cust','compose-cust'].forEach(selId => {
     const sel = document.getElementById(selId);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">-- 고객 선택 --</option>';
     customers.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
   });
-  document.getElementById('new-date').value = today;
-  document.getElementById('compose-date').value = today;
+  document.getElementById('new-date').value = d;
+  document.getElementById('compose-date').value = d;
 }
 
+let shownCount = PAGE_SIZE;
+const val = id => document.getElementById(id)?.value.trim() || '';
+
 function filtered() {
-  if (curFilter === 'all') return orders;
-  return orders.filter(o => o.order_status === curFilter);
+  const q = val('search'), from = val('from'), to = val('to');
+  // 고객명은 quotations.customer 에 없을 수도 있어 customers 에서 찾아 함께 검색한다
+  const custById = new Map(customers.map(c => [c.id, c.name]));
+  return orders.filter(o =>
+    (curFilter === 'all' || o.order_status === curFilter) &&
+    inRange(o.date, from, to) &&
+    matches(q, o.no, o.customer, custById.get(o.customer_id), o.items, o.created_by));
+}
+
+function applyFilters() { shownCount = PAGE_SIZE; renderList(); }
+function showMore()     { shownCount += PAGE_SIZE; renderList(); }
+function clearFilters() {
+  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
+  applyFilters();
+}
+function exportOrders() {
+  exportCsv('quotations', { q: val('search'), from: val('from'), to: val('to'),
+                            status: curFilter === 'all' ? '' : curFilter });
 }
 
 function renderList() {
   const list = document.getElementById('order-list');
   const rows = filtered();
-  if (!rows.length) { list.innerHTML = '<div class="p-6 text-center text-slate-400 text-sm">항목 없음</div>'; return; }
-  list.innerHTML = rows.map(o => {
+  list.innerHTML = pagedHtml(rows, shownCount, o => {
     const unpaid = (o.total||0) - (o.total_paid||0);
     const cust = customers.find(c=>c.id===o.customer_id);
     const custName = cust ? cust.name : (o.customer || '—');
@@ -304,7 +338,7 @@ function renderList() {
       </div>
       ${o.items ? `<div class="text-xs text-slate-400 mt-1 truncate">${esc(o.items)}</div>` : ''}
     </div>`;
-  }).join('');
+  }, 'showMore', '조건에 맞는 판매 건이 없습니다.');
 }
 
 // ─── 필터 탭 ─────────────────────────────────────────────────
@@ -315,8 +349,12 @@ document.getElementById('filter-tabs').addEventListener('click', e => {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.className = 'tab-btn px-3 py-1 rounded-full text-xs font-medium ' + (b===btn ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600');
   });
-  renderList();
+  applyFilters();
 });
+
+// 검색·기간 — 입력마다 전체를 다시 그리지 않도록 디바운스
+document.getElementById('search').addEventListener('input', debounce(applyFilters, 180));
+for (const id of ['from','to']) document.getElementById(id).addEventListener('change', applyFilters);
 
 // ─── 주문 선택 ───────────────────────────────────────────────
 async function selectOrder(id) {
@@ -362,6 +400,10 @@ async function selectOrder(id) {
             <button onclick="uncancelOrder(${order.id})" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200">취소 해제</button>
           `}
           <button onclick="openDrawingModal(${order.id})" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">✏️ 도면 연동</button>
+          <a href="/print.html?id=${order.id}&type=quote" target="_blank"
+             class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">🖨 견적서</a>
+          <a href="/print.html?id=${order.id}&type=statement" target="_blank"
+             class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">🖨 거래명세서</a>
         </div>
       </div>
       <!-- 금액 요약 — 공급가는 total/1.1 로 역산하던 값이라 실제와 달랐다.
@@ -762,7 +804,53 @@ function renderShipmentsTab(tc) {
         }).join('')}</tbody>
       </table>
     </div>`}
+    <div class="text-sm font-semibold mb-2">출고 이력</div>
+    <div id="ship-history" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div class="p-4 text-center text-slate-400 text-sm">불러오는 중…</div>
+    </div>
   `;
+  loadShipHistory(curId);
+}
+
+/* GET /api/shipments/order/:id 는 예전부터 있었지만 부르는 곳이 없었다.
+ * 언제 얼마나 나갔는지 볼 방법이 아예 없었던 셈이다. */
+async function loadShipHistory(id) {
+  let rows;
+  try { rows = await api.get(`/api/shipments/order/${id}`); } catch { return; }
+  const box = document.getElementById('ship-history');
+  if (!box || curId !== id) return;
+  const order = orders.find(o => o.id === id);
+  const canDelete = order && !['done','cancelled'].includes(order.order_status);
+  box.innerHTML = !rows.length
+    ? '<div class="p-4 text-center text-slate-400 text-sm">출고 이력 없음</div>'
+    : `<table class="w-full text-xs"><thead class="bg-slate-50"><tr>
+        <th class="p-2 text-left font-medium text-slate-500">출고일</th>
+        <th class="p-2 text-left font-medium text-slate-500">품목</th>
+        <th class="p-2 text-right font-medium text-slate-500">수량</th>
+        <th class="p-2 text-left font-medium text-slate-500">묶음/메모</th>
+        ${canDelete ? '<th class="p-2 w-8"></th>' : ''}
+      </tr></thead><tbody>${rows.map(s => `
+        <tr class="border-t border-slate-50">
+          <td class="p-2 text-slate-500 whitespace-nowrap">${esc(s.shipped_at || '—')}</td>
+          <td class="p-2">${esc(s.item_name || '(삭제된 품목)')}<span class="text-slate-400"> ${esc(s.spec || '')}</span></td>
+          <td class="p-2 text-right text-purple-700 font-medium">${qty(s.qty)} ${esc(s.unit || '')}</td>
+          <td class="p-2 text-slate-500">${esc(s.batch_no || s.note || '')}</td>
+          ${canDelete ? `<td class="p-2 text-center"><button onclick="guard(this, () => deleteShipment(${s.id}))"
+             title="이 출고 기록을 취소합니다" class="text-slate-300 hover:text-red-500">×</button></td>` : ''}
+        </tr>`).join('')}</tbody></table>`;
+}
+
+async function deleteShipment(id) {
+  if (!confirm('이 출고 기록을 취소할까요?\n출고 수량이 원장에서 다시 계산됩니다.')) return;
+  if (!await tryApi(() => api.del(`/api/shipments/${id}`), '출고를 취소했습니다.')) return;
+  const oid = curId;
+  [curItems, orders] = await Promise.all([
+    api.get(`/api/order_items/order/${oid}`),
+    api.get('/api/quotations'),
+  ]);
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(oid);
 }
 
 async function submitShipItem(itemId, orderId) {

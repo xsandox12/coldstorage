@@ -53,6 +53,11 @@
         <button onclick="openAddModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 추가</button>
       </div>
       <input id="search" type="text" placeholder="상호, 대표자, 사업자번호 검색..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" oninput="renderList()">
+      <div class="flex justify-end mt-2">
+        <button onclick="exportCsv('customers', { q: document.getElementById('search').value.trim() })"
+                title="현재 검색 조건으로 엑셀(CSV) 내보내기"
+                class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV 내보내기</button>
+      </div>
     </div>
     <div id="cust-list" class="flex-1 overflow-y-auto divide-y divide-slate-50"></div>
   </div>

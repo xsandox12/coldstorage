@@ -359,6 +359,125 @@ function getAll(cfg) {
   const order = TABLE_ORDER[cfg.table] ? ` ORDER BY ${TABLE_ORDER[cfg.table]}` : '';
   return db.prepare(`SELECT * FROM ${cfg.table}${order}`).all().map(r => rowOut(cfg.table, r));
 }
+
+/* ─── 목록 검색·필터·페이지네이션 ────────────────────────────
+ * 그동안 서버는 쿼리스트링을 통째로 버렸고 LIMIT 도 없었다. 목록 화면 4개는
+ * 검색 수단이 아예 없어 고객명으로 건을 찾을 방법이 없었다.
+ *
+ * 컬럼명은 아래 설정에서만 온다(클라이언트 값이 SQL 에 들어가지 않는다).
+ * 값은 전부 바인딩한다. */
+const LIST_QUERY = {
+  quotations: { cols: ['no','customer','items','memo_customer','created_by'], status:'order_status',    date:'date' },
+  purchases:  { cols: ['no','vendor','items','memo','created_by'],            status:'purchase_status', date:'date' },
+  as_records: { cols: ['cust_name','issue','desc','phone','assignee'],        status:'status',          date:'date' },
+  customers:  { cols: ['name','rep','business_no','phone','email'] },
+  products:   { cols: ['name','cat1','cat2','cat3','cat4','note'] },
+  payments:   { cols: ['note'], date:'paid_at' },
+};
+// 정렬 가능한 컬럼 — 클라이언트가 임의 문자열을 넣지 못하게 화이트리스트로
+const SORTABLE = {
+  quotations: ['id','date','total','no','order_status'],
+  purchases:  ['id','date','total','no','purchase_status'],
+  as_records: ['id','date','status','urgency'],
+  customers:  ['name','id'],
+  products:   ['name','price','id'],
+  payments:   ['id','paid_at','amount'],
+};
+const LIST_LIMIT_MAX = 500;
+
+/* CSV 내보내기 — 내보낼 컬럼과 머리글을 여기서만 정한다.
+ * 내부 메모(memo_internal)처럼 나가면 안 되는 컬럼은 애초에 넣지 않는다. */
+const SALES_ST  = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료', cancelled:'취소' };
+const PUR_ST    = { draft:'작성중', ordered:'발주', partial:'부분입고', received:'입고완료', done:'정산완료' };
+const AS_ST     = { OPEN:'미처리', IN_PROGRESS:'처리중', DONE:'완료', CLOSED:'종료' };
+const VAT_MODE  = { EXCLUSIVE:'부가세 별도', INCLUSIVE:'부가세 포함' };
+const EXPORT_COLUMNS = {
+  quotations: [
+    { label:'판매번호', key:'no' }, { label:'일자', key:'date' },
+    { label:'고객', key:'customer' },
+    { label:'상태', get:r => SALES_ST[r.order_status] || r.order_status },
+    { label:'공급가액', key:'supply_amount' }, { label:'면세', key:'exempt_amount' },
+    { label:'부가세', key:'vat_amount' }, { label:'합계', key:'total' },
+    { label:'입금', key:'total_paid' },
+    { label:'미수금', get:r => (r.total||0) - (r.total_paid||0) },
+    { label:'과세방식', get:r => VAT_MODE[r.vat_mode] || r.vat_mode },
+    { label:'작성자', key:'created_by' }, { label:'비고', key:'items' },
+  ],
+  purchases: [
+    { label:'구매번호', key:'no' }, { label:'일자', key:'date' },
+    { label:'공급업체', key:'vendor' },
+    { label:'상태', get:r => PUR_ST[r.purchase_status] || r.purchase_status },
+    { label:'공급가액', key:'supply_amount' }, { label:'면세', key:'exempt_amount' },
+    { label:'부가세', key:'vat_amount' }, { label:'합계', key:'total' },
+    { label:'결제', key:'total_paid' },
+    { label:'미지급', get:r => (r.total||0) - (r.total_paid||0) },
+    { label:'작성자', key:'created_by' }, { label:'비고', key:'items' },
+  ],
+  as_records: [
+    { label:'접수일', key:'date' }, { label:'고객', key:'cust_name' },
+    { label:'연락처', key:'phone' },
+    { label:'상태', get:r => AS_ST[r.status] || r.status },
+    { label:'긴급', get:r => r.urgency === 'EMERGENCY' ? '긴급' : '일반' },
+    { label:'담당자', key:'assignee' },
+    { label:'증상', key:'issue' }, { label:'메모', key:'desc' },
+  ],
+  customers: [
+    { label:'상호명', key:'name' }, { label:'대표자', key:'rep' },
+    { label:'사업자번호', key:'business_no' }, { label:'전화', key:'phone' },
+    { label:'이메일', key:'email' },
+    { label:'주소', get:r => `${r.address_base||''} ${r.address_detail||''}`.trim() },
+    { label:'등급', key:'status' }, { label:'단가그룹', key:'price_group' },
+  ],
+  products: [
+    { label:'대분류', key:'cat1' }, { label:'중분류', key:'cat2' },
+    { label:'소분류', key:'cat3' }, { label:'세부', key:'cat4' },
+    { label:'품목명', key:'name' }, { label:'단위', key:'unit' },
+    { label:'단가', key:'price' }, { label:'비고', key:'note' },
+  ],
+  payments: [
+    { label:'입금일', key:'paid_at' }, { label:'주문ID', key:'order_id' },
+    { label:'금액', key:'amount' }, { label:'메모', key:'note' },
+  ],
+};
+
+/** 쿼리 파라미터로 목록을 조회한다. { rows, total, limit, offset } */
+function queryList(cfg, qs) {
+  const t = cfg.table;
+  const conf = LIST_QUERY[t] || { cols: [] };
+  const where = [], args = [];
+
+  const q = String(qs.q ?? '').trim();
+  if (q && conf.cols.length) {
+    // 공백으로 나눈 모든 토큰이 어느 컬럼엔가 포함돼야 한다
+    for (const tok of q.split(/\s+/).slice(0, 5)) {
+      where.push('(' + conf.cols.map(c => `IFNULL(${c},'') LIKE ?`).join(' OR ') + ')');
+      for (const _ of conf.cols) args.push(`%${tok}%`);
+    }
+  }
+  if (qs.status && conf.status) {
+    const list = String(qs.status).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
+    if (list.length) { where.push(`${conf.status} IN (${list.map(()=>'?').join(',')})`); args.push(...list); }
+  }
+  if (qs.from && conf.date) { where.push(`${conf.date} >= ?`); args.push(String(qs.from)); }
+  if (qs.to   && conf.date) { where.push(`${conf.date} <= ?`); args.push(String(qs.to)); }
+
+  const sql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as n FROM ${t}${sql}`).get(...args).n;
+
+  const sortCol = (SORTABLE[t] || []).includes(String(qs.sort)) ? String(qs.sort) : null;
+  const dir = String(qs.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const order = sortCol ? ` ORDER BY ${sortCol} ${dir}`
+              : TABLE_ORDER[t] ? ` ORDER BY ${TABLE_ORDER[t]}` : '';
+
+  let limit = parseInt(qs.limit, 10);
+  limit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, LIST_LIMIT_MAX) : 50;
+  let offset = parseInt(qs.offset, 10);
+  offset = Number.isFinite(offset) && offset > 0 ? offset : 0;
+
+  const rows = db.prepare(`SELECT * FROM ${t}${sql}${order} LIMIT ? OFFSET ?`)
+                 .all(...args, limit, offset).map(r => rowOut(t, r));
+  return { rows, total, limit, offset };
+}
 function getOne(cfg, id) {
   return rowOut(cfg.table, db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(id));
 }
@@ -762,7 +881,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function handle(req, res) {
-  const { pathname: rawPath } = url.parse(req.url);
+  // 그동안 pathname 만 꺼내 쿼리스트링을 통째로 버렸다. 검색·필터·페이지네이션
+  // 파라미터를 받을 지점 자체가 없었다.
+  const { pathname: rawPath, query: rawQuery } = url.parse(req.url, true);
+  req.query = rawQuery || {};
   // 잘못된 퍼센트 인코딩(예: GET /%)이 프로세스를 죽이지 않도록
   let pathname;
   try { pathname = decodeURIComponent(rawPath); }
@@ -809,6 +931,54 @@ async function handle(req, res) {
     if (pathname.startsWith('/api/')) return json(res, 401, { error: '로그인이 필요합니다.' });
     res.writeHead(302, { 'Location': '/login.html' });
     return res.end();
+  }
+
+  // ── 인쇄용 데이터 (견적서 / 거래명세서) ─────────────────────
+  // 한 화면에 필요한 것을 한 번에 내려준다. 공급자 정보는 blobs 의 settings 에 있다.
+  const mPrint = pathname.match(/^\/api\/print\/quotations\/(\d+)$/);
+  if (mPrint && method === 'GET') {
+    const id = parseInt(mPrint[1]);
+    const order = db.prepare(`SELECT q.*, c.name as cust_name, c.rep as cust_rep, c.business_no as cust_business_no,
+                                     c.phone as cust_phone, c.address_base, c.address_detail
+                              FROM quotations q LEFT JOIN customers c ON q.customer_id=c.id
+                              WHERE q.id=?`).get(id);
+    if (!order) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    delete order.memo_internal;   // 내부 메모는 고객에게 나가는 문서에 넣지 않는다
+    let settings = {};
+    try { settings = JSON.parse(db.prepare(`SELECT value FROM blobs WHERE key='settings'`).get()?.value || '{}'); } catch {}
+    return json(res, 200, {
+      order,
+      items: db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(id),
+      shipments: db.prepare(`SELECT s.*, oi.name as item_name, oi.spec, oi.unit
+                             FROM shipments s LEFT JOIN order_items oi ON s.item_id=oi.id
+                             WHERE s.order_id=? ORDER BY s.shipped_at, s.id`).all(id),
+      payments: db.prepare('SELECT * FROM payments WHERE order_id=? ORDER BY paid_at,id').all(id),
+      company: settings.company || {},
+    });
+  }
+
+  // ── CSV 내보내기 ────────────────────────────────────────────
+  const mExport = pathname.match(/^\/api\/export\/([a-z_]+)$/);
+  if (mExport && method === 'GET') {
+    const cfg = TABLES[mExport[1]];
+    if (!cfg || !EXPORT_COLUMNS[cfg.table]) return json(res, 404, { ok:false, error:'내보낼 수 없는 리소스입니다.' });
+    const spec = EXPORT_COLUMNS[cfg.table];
+    // 화면에 보이는 것과 같은 필터를 적용한다. 상한을 넉넉히 두되 무제한은 아니다.
+    const { rows } = queryList(cfg, { ...req.query, limit: LIST_LIMIT_MAX, offset: 0 });
+    const esc = v => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const body = [spec.map(c => c.label).join(',')]
+      .concat(rows.map(r => spec.map(c => esc(c.get ? c.get(r) : r[c.key])).join(',')))
+      .join('\r\n');
+    const stamp = today();
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${cfg.table}-${stamp}.csv"; filename*=UTF-8''${encodeURIComponent(cfg.table + '-' + stamp + '.csv')}`,
+    });
+    // BOM 이 없으면 엑셀이 UTF-8 로 인식하지 못해 한글이 전부 깨진다
+    return res.end('﻿' + body, 'utf8');
   }
 
   // ── 계정 ────────────────────────────────────────────────────
@@ -976,7 +1146,42 @@ async function handle(req, res) {
   const mShipOrder = pathname.match(/^\/api\/shipments\/order\/(\d+)$/);
   if (mShipOrder) {
     const orderId = parseInt(mShipOrder[1]);
-    if (method === 'GET') return json(res, 200, db.prepare('SELECT s.*,oi.name as item_name FROM shipments s LEFT JOIN order_items oi ON s.item_id=oi.id WHERE s.order_id=? ORDER BY s.shipped_at').all(orderId));
+    if (method === 'GET') return json(res, 200, db.prepare(`SELECT s.*,oi.name as item_name,oi.spec,oi.unit,sb.batch_no
+                                                            FROM shipments s
+                                                            LEFT JOIN order_items oi ON s.item_id=oi.id
+                                                            LEFT JOIN shipment_batches sb ON s.batch_id=sb.id
+                                                            WHERE s.order_id=? ORDER BY s.shipped_at DESC, s.id DESC`).all(orderId));
+  }
+
+  // ── /api/shipments/:id, /api/purchase_receipts/:id ───────────
+  // 지금까지 출고·입고는 등록만 되고 되돌릴 수단이 없었다. 수량을 잘못 넣으면
+  // DB 를 직접 고치는 것 말고는 방법이 없었다. 원장에서 다시 계산해 지운다.
+  const mLedgerDel = pathname.match(/^\/api\/(shipments|purchase_receipts)\/(\d+)$/);
+  if (mLedgerDel && method === 'DELETE') {
+    const sales = mLedgerDel[1] === 'shipments';
+    const cfg   = sales ? LINE_ITEM.sales : LINE_ITEM.purchase;
+    const id    = parseInt(mLedgerDel[2]);
+    const row = db.prepare(`SELECT ${cfg.parentCol} as parent FROM ${cfg.ledger} WHERE id=?`).get(id);
+    if (!row) return json(res, 404, { ok:false, error:'해당 기록을 찾을 수 없습니다.' });
+    const statusCol = sales ? 'order_status' : 'purchase_status';
+    const st = db.prepare(`SELECT ${statusCol} as st FROM ${cfg.parent} WHERE id=?`).get(row.parent)?.st;
+    if (['done','cancelled'].includes(st)) {
+      return json(res, 400, { ok:false, error:`완료·취소된 건의 ${cfg.word} 기록은 삭제할 수 없습니다.` });
+    }
+    db.transaction(() => {
+      db.prepare(`DELETE FROM ${cfg.ledger} WHERE id=?`).run(id);
+      recalcLedgerQty(cfg, row.parent);   // 클라이언트 값이 아니라 원장에서 다시 센다
+      // 전부 취소돼 0 이 되면 상태도 되돌려야 한다. autoStatus 는 올리기만 하므로
+      // 먼저 ordered 로 내린 뒤 원장 기준으로 다시 올린다.
+      const anyLeft = db.prepare(`SELECT COALESCE(SUM(${cfg.doneCol}),0) as n FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).get(row.parent).n;
+      if (!anyLeft && ['partial','shipped','received'].includes(st)) {
+        db.prepare(`UPDATE ${cfg.parent} SET ${statusCol}='ordered' WHERE id=?`).run(row.parent);
+      } else if (['partial','shipped','received'].includes(st)) {
+        db.prepare(`UPDATE ${cfg.parent} SET ${statusCol}='ordered' WHERE id=?`).run(row.parent);
+        cfg.after(row.parent);
+      }
+    })();
+    return json(res, 200, { ok:true });
   }
 
   // ── /api/order_items/order/:orderId ──────────────────────────
@@ -1356,7 +1561,11 @@ async function handle(req, res) {
     const cfg = TABLES[resource];
     if (!cfg) return json(res, 404, { ok:false, error:'알 수 없는 리소스' });
 
-    if (method === 'GET')  return json(res, 200, getAll(cfg));
+    // 쿼리스트링이 있으면 { rows, total, limit, offset } 봉투를, 없으면 배열을
+    // 돌려준다. 기존 호출부(전체 목록을 쓰는 곳)를 깨지 않으면서 페이지네이션을 연다.
+    if (method === 'GET') {
+      return json(res, 200, Object.keys(req.query).length ? queryList(cfg, req.query) : getAll(cfg));
+    }
     if (method === 'POST') {
       const item = await parseBody(req);
       if (!item) return json(res, 400, { ok:false, error:'본문 없음' });

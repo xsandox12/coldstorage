@@ -113,3 +113,33 @@ function debounce(fn, ms = 200) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+/** 날짜 문자열이 [from, to] 안에 드는가. 빈 값은 제한 없음. */
+function inRange(date, from, to) {
+  const d = String(date || '');
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
+/* ── 점진 렌더 ─────────────────────────────────────────────
+ * 목록 화면 4개가 전체 결과를 한 번에 innerHTML 로 그렸다. 건수가 쌓이면
+ * 검색 입력 한 글자마다 수천 행을 다시 그리게 된다. 화면당 일정 개수만 그리고
+ * "더 보기" 로 늘린다. */
+const PAGE_SIZE = 60;
+/** rows 중 앞에서 shown 개만 html 로 만들고, 남으면 "더 보기" 버튼을 붙인다 */
+function pagedHtml(rows, shown, rowHtml, moreFn, emptyText = '항목 없음') {
+  if (!rows.length) return `<div class="p-6 text-center text-slate-400 text-sm">${esc(emptyText)}</div>`;
+  const slice = rows.slice(0, shown);
+  const rest  = rows.length - slice.length;
+  return slice.map(rowHtml).join('') + (rest > 0
+    ? `<div class="p-3 text-center"><button onclick="${moreFn}()"
+         class="text-xs px-4 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+         ${rest}건 더 보기</button></div>`
+    : `<div class="p-2 text-center text-xs text-slate-300">${rows.length}건</div>`);
+}
+
+/** CSV 내려받기 — 필터를 그대로 붙여 서버가 만든 파일을 받는다 */
+function exportCsv(resource, params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
+  location.href = `/api/export/${resource}?${qs}`;
+}

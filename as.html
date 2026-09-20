@@ -52,6 +52,17 @@
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="IN_PROGRESS">처리중</button>
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="DONE">완료</button>
     <button class="as-tab py-3 text-sm font-medium border-b-2 border-transparent text-slate-500" data-s="CLOSED">종료</button>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-2 py-2">
+      <input id="search" type="text" placeholder="고객, 증상, 담당자 검색…" autocomplete="off"
+             class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:border-blue-400">
+      <input id="from" type="date" class="border border-slate-200 rounded px-2 py-1.5 text-xs">
+      <span class="text-xs text-slate-400">~</span>
+      <input id="to" type="date" class="border border-slate-200 rounded px-2 py-1.5 text-xs">
+      <button onclick="clearFilters()" class="text-xs px-2 py-1.5 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">초기화</button>
+      <button onclick="exportAS()" title="현재 조건으로 엑셀(CSV) 내보내기"
+              class="text-xs px-2 py-1.5 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV</button>
+    </div>
   </div>
 
   <!-- 카드 목록 -->
@@ -159,16 +170,32 @@ async function init() {
   renderList();
 }
 
+let shownCount = PAGE_SIZE;
+const val = id => document.getElementById(id)?.value.trim() || '';
+
 function filtered() {
-  if (curFilter === 'all') return records;
-  return records.filter(r => r.status === curFilter);
+  const q = val('search'), from = val('from'), to = val('to');
+  return records.filter(r =>
+    (curFilter === 'all' || r.status === curFilter) &&
+    inRange(r.date, from, to) &&
+    matches(q, r.cust_name, r.issue, r.desc, r.phone, r.assignee));
+}
+
+function applyFilters() { shownCount = PAGE_SIZE; renderList(); }
+function showMore()     { shownCount += PAGE_SIZE; renderList(); }
+function clearFilters() {
+  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
+  applyFilters();
+}
+function exportAS() {
+  exportCsv('as_records', { q: val('search'), from: val('from'), to: val('to'),
+                            status: curFilter === 'all' ? '' : curFilter });
 }
 
 function renderList() {
   const list = document.getElementById('as-list');
   const rows = filtered();
-  if (!rows.length) { list.innerHTML = '<div class="col-span-3 text-center text-slate-400 text-sm py-12">접수된 A/S가 없습니다</div>'; return; }
-  list.innerHTML = rows.map(a => {
+  list.innerHTML = pagedHtml(rows, shownCount, a => {
     const next = STATUS_FLOW[a.status];
     return `<div class="bg-white rounded-xl border ${STATUS_COLOR[a.status]||STATUS_COLOR.CLOSED} p-4">
       <div class="flex items-start justify-between mb-2">
@@ -201,7 +228,7 @@ function renderList() {
         </div>
       </div>
     </div>`;
-  }).join('');
+  }, 'showMore', '조건에 맞는 A/S 건이 없습니다.');
 }
 
 // 필터 탭
@@ -212,20 +239,26 @@ document.getElementById('filter-tabs').addEventListener('click', e => {
   document.querySelectorAll('.as-tab').forEach(b => {
     b.className = 'as-tab py-3 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
   });
-  renderList();
+  applyFilters();
 });
 
+document.getElementById('search').addEventListener('input', debounce(applyFilters, 180));
+for (const id of ['from','to']) document.getElementById(id).addEventListener('change', applyFilters);
+
 async function advance(id, next) {
-  await api.put(`/api/as_records/${id}`, { status:next });
+  if (!await tryApi(() => api.put(`/api/as_records/${id}`, { status:next }), '상태를 변경했습니다.')) return;
   const r = records.find(x=>x.id===id);
   if (r) r.status = next;
   renderList();
 }
 
 async function deleteAS(id) {
-  if (!confirm('삭제할까요?')) return;
-  await api.del(`/api/as_records/${id}`);
-  records = records.filter(r=>r.id!==id);
+  const r = records.find(x => x.id === id);
+  if (!confirm(`${r?.cust_name || 'A/S'} — "${(r?.issue || '').slice(0, 30)}"\n\n이 접수 건을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+  // 서버 재조회 — 삭제가 실패해도 목록에서 사라지던 경로였다
+  if (!await tryApi(() => api.del(`/api/as_records/${id}`), '삭제했습니다.')) return;
+  records = await api.get('/api/as_records');
+  records.sort((a,b) => b.date > a.date ? 1 : -1);
   renderList();
 }
 

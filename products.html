@@ -63,6 +63,11 @@
       <div class="flex-1"></div>
       <input id="search" type="text" placeholder="상품명, 분류 검색..."
         class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:border-blue-400" oninput="render()">
+      <div class="flex justify-end mt-2">
+        <button onclick="exportCsv('products', { q: document.getElementById('search').value.trim() })"
+                title="현재 검색 조건으로 엑셀(CSV) 내보내기"
+                class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV 내보내기</button>
+      </div>
       <button onclick="openModal(null)" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700 shrink-0">+ 상품 추가</button>
     </div>
 

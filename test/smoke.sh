@@ -207,6 +207,60 @@ code -X DELETE "$BASE/api/quotations/$OID2" >/dev/null
 check "대시보드 내부메모 미노출"  "true" \
       "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
 
+# ── Phase 3: 검색 · 페이지네이션 · 내보내기 · 인쇄 ──────────
+echo
+echo "[Phase 3 목록 조회]"
+check "파라미터 없으면 배열"      "true" "$(body "$BASE/api/quotations" | jsonq 'Array.isArray(JSON.parse(s))')"
+check "파라미터 있으면 봉투"      "true" \
+      "$(body "$BASE/api/quotations?limit=1" | jsonq "(o=>!Array.isArray(o)&&'rows' in o&&'total' in o)(JSON.parse(s))")"
+check "limit 적용"                1 "$(body "$BASE/api/quotations?limit=1" | jsonq 'JSON.parse(s).rows.length')"
+check "  total 은 전체 건수"      "true" \
+      "$(body "$BASE/api/quotations?limit=1" | jsonq 'JSON.parse(s).total > 1')"
+check "limit 상한 500"            500 "$(body "$BASE/api/quotations?limit=99999" | jsonq 'JSON.parse(s).limit')"
+check "검색어로 좁혀짐"           "true" \
+      "$(body "$BASE/api/quotations?q=$STAMP" | jsonq "JSON.parse(s).rows.every(r=>r.no==='$STAMP')")"
+# 검색어는 ASCII 로 — Git Bash 에서 한글을 URL 에 실으면 콘솔 인코딩에 따라 깨진다
+check "없는 검색어 -> 0건"        0 "$(body "$BASE/api/quotations?q=__NOMATCH__" | jsonq 'JSON.parse(s).total')"
+check "여러 토큰은 모두 포함해야"  0 "$(body "$BASE/api/quotations?q=$STAMP+__NOMATCH__" | jsonq 'JSON.parse(s).total')"
+check "상태 필터"                 "true" \
+      "$(body "$BASE/api/quotations?status=done" | jsonq "JSON.parse(s).rows.every(r=>r.order_status==='done')")"
+check "기간 필터"                 "true" \
+      "$(body "$BASE/api/quotations?from=2030-01-01" | jsonq 'JSON.parse(s).total===0')"
+check "★ 임의 sort 는 무시(인젝션)" 200 "$(code "$BASE/api/quotations?sort=id);DROP+TABLE+quotations--")"
+check "  quotations 테이블 생존"  "true" "$(body "$BASE/api/quotations" | jsonq 'JSON.parse(s).length>0')"
+check "  프로세스 생존"           200 "$(alive)"
+
+echo
+echo "[Phase 3 CSV 내보내기]"
+CSV=$(body "$BASE/api/export/quotations?limit=5")
+check "★ UTF-8 BOM 으로 시작"     "true" "$(printf '%s' "$CSV" | head -c 3 | od -An -tx1 | tr -d ' \n' | grep -q '^efbbbf$' && echo true || echo false)"
+check "머리글에 공급가액"          "true" "$(printf '%s' "$CSV" | head -1 | grep -q '공급가액' && echo true || echo false)"
+check "★ 내부메모는 내보내지 않음" "true" "$(printf '%s' "$CSV" | grep -qi 'memo_internal' && echo false || echo true)"
+check "내보낼 수 없는 리소스 -> 404" 404 "$(code "$BASE/api/export/drawings")"
+
+echo
+echo "[Phase 3 인쇄 데이터]"
+check "인쇄 데이터 -> 200"        200 "$(code "$BASE/api/print/quotations/$OID")"
+check "  ★ 내부메모 제외"         "true" \
+      "$(body "$BASE/api/print/quotations/$OID" | jsonq "!('memo_internal' in JSON.parse(s).order)")"
+check "  공급자 정보 포함"        "true" \
+      "$(body "$BASE/api/print/quotations/$OID" | jsonq '!!JSON.parse(s).company')"
+check "  품목·출고·입금 포함"     "true" \
+      "$(body "$BASE/api/print/quotations/$OID" | jsonq "(o=>['items','shipments','payments'].every(k=>Array.isArray(o[k])))(JSON.parse(s))")"
+check "없는 주문 -> 404"          404 "$(code "$BASE/api/print/quotations/999999")"
+
+echo
+echo "[Phase 3 출고 취소]"
+SHIPID=$(body "$BASE/api/shipments/order/$OID" | jsonq 'JSON.parse(s)[0].id')
+check "출고 취소 -> 200"          200 "$(code -X DELETE "$BASE/api/shipments/$SHIPID")"
+check "★ shipped_qty 원장에서 재계산" 0 "$(body "$BASE/api/order_items/order/$OID" | jsonq 'JSON.parse(s)[0].shipped_qty')"
+check "  전부 취소되면 ordered 복귀" "ordered" \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).order_status")"
+check "없는 출고 취소 -> 404"     404 "$(code -X DELETE "$BASE/api/shipments/999999")"
+# 이후 항목이 출고 이력을 전제하므로 되돌려 둔다
+body -X POST "$BASE/api/shipments" -H 'Content-Type: application/json' \
+     -d "{\"order_id\":$OID,\"item_id\":$IID,\"qty\":3}" >/dev/null
+
 # ── Phase 2: 부가세 ─────────────────────────────────────────
 echo
 echo "[Phase 2 부가세]"

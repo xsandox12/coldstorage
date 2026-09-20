@@ -64,6 +64,16 @@
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="received">입고완료</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="done">정산완료</button>
       </div>
+      <input id="search" type="text" placeholder="공급업체, 구매번호, 품목 검색…" autocomplete="off"
+             class="w-full mt-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      <div class="flex items-center gap-1 mt-2">
+        <input id="from" type="date" class="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs">
+        <span class="text-xs text-slate-400">~</span>
+        <input id="to" type="date" class="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs">
+        <button onclick="clearFilters()" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">초기화</button>
+        <button onclick="exportPurchases()" title="현재 조건으로 엑셀(CSV) 내보내기"
+                class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV</button>
+      </div>
     </div>
     <div id="purchase-list" class="flex-1 overflow-y-auto divide-y divide-slate-50"></div>
   </div>
@@ -141,16 +151,32 @@ async function init() {
   document.getElementById('new-date').value = today();
 }
 
+let shownCount = PAGE_SIZE;
+const val = id => document.getElementById(id)?.value.trim() || '';
+
 function filtered() {
-  if (curFilter === 'all') return purchases;
-  return purchases.filter(p => p.purchase_status === curFilter);
+  const q = val('search'), from = val('from'), to = val('to');
+  return purchases.filter(p =>
+    (curFilter === 'all' || p.purchase_status === curFilter) &&
+    inRange(p.date, from, to) &&
+    matches(q, p.no, p.vendor, p.items, p.memo, p.created_by));
+}
+
+function applyFilters() { shownCount = PAGE_SIZE; renderList(); }
+function showMore()     { shownCount += PAGE_SIZE; renderList(); }
+function clearFilters() {
+  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
+  applyFilters();
+}
+function exportPurchases() {
+  exportCsv('purchases', { q: val('search'), from: val('from'), to: val('to'),
+                           status: curFilter === 'all' ? '' : curFilter });
 }
 
 function renderList() {
   const list = document.getElementById('purchase-list');
   const rows = filtered();
-  if (!rows.length) { list.innerHTML = '<div class="p-6 text-center text-slate-400 text-sm">항목 없음</div>'; return; }
-  list.innerHTML = rows.map(p => {
+  list.innerHTML = pagedHtml(rows, shownCount, p => {
     const unpaid = (p.total||0) - (p.total_paid||0);
     return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===p.id?'row-sel':''}" onclick="selectPurchase(${p.id})">
       <div class="flex items-center justify-between mb-1">
@@ -166,7 +192,7 @@ function renderList() {
       </div>
       ${p.items ? `<div class="text-xs text-slate-400 mt-1 truncate">${esc(p.items)}</div>` : ''}
     </div>`;
-  }).join('');
+  }, 'showMore', '조건에 맞는 구매 건이 없습니다.');
 }
 
 document.getElementById('filter-tabs').addEventListener('click', e => {
@@ -176,8 +202,11 @@ document.getElementById('filter-tabs').addEventListener('click', e => {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.className = 'tab-btn px-3 py-1 rounded-full text-xs font-medium ' + (b===btn ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600');
   });
-  renderList();
+  applyFilters();
 });
+
+document.getElementById('search').addEventListener('input', debounce(applyFilters, 180));
+for (const id of ['from','to']) document.getElementById(id).addEventListener('change', applyFilters);
 
 async function selectPurchase(id) {
   curId = id;

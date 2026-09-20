@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>출력 — ColdStorage</title>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  :root { --line:#333; --muted:#666; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Pretendard',sans-serif; background:#e2e8f0; color:#111; font-size:13px; }
+
+  /* 화면에서만 보이는 조작 막대 */
+  .toolbar { position:sticky; top:0; z-index:10; background:#1e293b; color:#fff;
+             padding:10px 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .toolbar button, .toolbar select, .toolbar a {
+    font:inherit; font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid #475569;
+    background:#334155; color:#fff; cursor:pointer; text-decoration:none; }
+  .toolbar button.primary { background:#2563eb; border-color:#2563eb; }
+  .toolbar .sp { flex:1; }
+
+  /* A4 용지 */
+  .sheet { width:210mm; min-height:297mm; margin:16px auto; padding:16mm 14mm;
+           background:#fff; box-shadow:0 2px 12px rgba(0,0,0,.15); }
+
+  h1.doc-title { font-size:26px; letter-spacing:.4em; text-align:center;
+                 font-weight:700; margin-bottom:14px; padding-left:.4em; }
+  .meta { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:10px; }
+  .meta .no { font-size:12px; color:var(--muted); }
+
+  .parties { display:flex; gap:10px; margin-bottom:14px; }
+  .party { flex:1; border:1px solid var(--line); }
+  .party h2 { font-size:11px; background:#f1f5f9; padding:4px 8px; border-bottom:1px solid var(--line);
+              font-weight:600; letter-spacing:.05em; }
+  .party table { width:100%; border-collapse:collapse; }
+  .party th, .party td { padding:4px 8px; font-size:12px; text-align:left; vertical-align:top; }
+  .party th { width:62px; color:var(--muted); font-weight:500; white-space:nowrap; }
+
+  table.items { width:100%; border-collapse:collapse; margin-bottom:10px; }
+  table.items th, table.items td { border:1px solid var(--line); padding:5px 6px; font-size:12px; }
+  table.items thead th { background:#f1f5f9; font-weight:600; text-align:center; }
+  table.items td.r { text-align:right; }
+  table.items td.c { text-align:center; }
+  table.items tfoot td { background:#f8fafc; font-weight:600; }
+
+  .summary { display:flex; justify-content:flex-end; margin-bottom:12px; }
+  .summary table { border-collapse:collapse; min-width:62mm; }
+  .summary th, .summary td { border:1px solid var(--line); padding:5px 10px; font-size:12px; }
+  .summary th { background:#f1f5f9; text-align:left; font-weight:500; width:34mm; }
+  .summary td { text-align:right; }
+  .summary tr.total th, .summary tr.total td { font-weight:700; font-size:13px; background:#eff6ff; }
+
+  .notes { border:1px solid var(--line); padding:8px; font-size:12px; min-height:18mm;
+           white-space:pre-wrap; margin-bottom:10px; }
+  .notes h3 { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:4px; }
+  .foot { font-size:11px; color:var(--muted); line-height:1.7; }
+  .stamp { text-align:right; margin-top:16px; font-size:13px; }
+  .empty { text-align:center; color:var(--muted); padding:40px; }
+
+  @media print {
+    body { background:#fff; }
+    .toolbar, .no-print { display:none !important; }
+    .sheet { width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
+    @page { size:A4; margin:14mm; }
+    table.items { page-break-inside:auto; }
+    table.items tr { page-break-inside:avoid; page-break-after:auto; }
+    thead { display:table-header-group; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label>문서
+    <select id="doc-type" onchange="render()">
+      <option value="quote">견적서</option>
+      <option value="statement">거래명세서</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="opt-stamp" checked onchange="render()"> 직인란</label>
+  <label><input type="checkbox" id="opt-bank" checked onchange="render()"> 입금계좌</label>
+  <span class="sp"></span>
+  <button class="primary" onclick="window.print()">🖨 인쇄 / PDF 저장</button>
+  <a href="#" id="back">← 돌아가기</a>
+</div>
+
+<div id="sheet" class="sheet"><div class="empty">불러오는 중…</div></div>
+
+<script>
+let DATA = null;
+
+const params = new URLSearchParams(location.search);
+const ORDER_ID = params.get('id');
+
+document.getElementById('back').href = '/orders.html';
+if (params.get('type') === 'statement') document.getElementById('doc-type').value = 'statement';
+
+async function init() {
+  if (!ORDER_ID) { document.getElementById('sheet').innerHTML = '<div class="empty">주문을 지정하지 않았습니다.</div>'; return; }
+  try {
+    DATA = await api.get(`/api/print/quotations/${ORDER_ID}`);
+  } catch (e) {
+    document.getElementById('sheet').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  render();
+}
+
+/** 금액을 한글로 — 계약 문서에서 위변조를 막기 위해 관행적으로 병기한다 */
+function hangulAmount(n) {
+  n = Math.round(Number(n) || 0);
+  if (n === 0) return '영';
+  const digits = ['','일','이','삼','사','오','육','칠','팔','구'];
+  const small  = ['','십','백','천'];
+  const big    = ['','만','억','조','경'];
+  let out = '', group = 0;
+  while (n > 0) {
+    const chunk = n % 10000;
+    if (chunk) {
+      let part = '';
+      for (let i = 0; i < 4; i++) {
+        const d = Math.floor(chunk / Math.pow(10, i)) % 10;
+        if (d) part = digits[d] + small[i] + part;
+      }
+      out = part + big[group] + out;
+    }
+    n = Math.floor(n / 10000);
+    group++;
+  }
+  return out;
+}
+
+function render() {
+  if (!DATA) return;
+  const type = document.getElementById('doc-type').value;
+  const showStamp = document.getElementById('opt-stamp').checked;
+  const showBank  = document.getElementById('opt-bank').checked;
+  const { order, items, shipments, payments, company } = DATA;
+
+  const isStatement = type === 'statement';
+  const title = isStatement ? '거래명세서' : '견 적 서';
+  const addr = [order.address_base, order.address_detail].filter(Boolean).join(' ');
+  const unpaid = (order.total || 0) - (order.total_paid || 0);
+
+  // 거래명세서는 실제 출고분을, 견적서는 주문 품목 전체를 싣는다
+  const shippedByItem = shipments.reduce((m, s) => {
+    m[s.item_id] = (m[s.item_id] || 0) + (Number(s.qty) || 0); return m;
+  }, {});
+  const rows = isStatement
+    ? items.filter(it => shippedByItem[it.id] > 0)
+           .map(it => ({ ...it, showQty: shippedByItem[it.id],
+                         amount: Math.round(shippedByItem[it.id] * (it.unit_price || 0)) }))
+    : items.map(it => ({ ...it, showQty: it.qty,
+                         amount: it.amount ?? Math.round((it.qty||0) * (it.unit_price||0)) }));
+
+  // 거래명세서는 출고분만 싣기 때문에 합계를 다시 계산해야 한다.
+  // 부가세는 문서 단위로 한 번만 — 행별 세액 합산은 1원씩 어긋난다.
+  const vatRate = Number.isFinite(Number(order.vat_rate)) ? Number(order.vat_rate) : 0.1;
+  const inclusive = order.vat_mode === 'INCLUSIVE';
+  let supply, vat, exempt, total;
+  if (isStatement) {
+    let taxable = 0; exempt = 0;
+    for (const r of rows) { if (r.tax_free) exempt += r.amount; else taxable += r.amount; }
+    if (inclusive) { supply = Math.round(taxable / (1 + vatRate)); vat = taxable - supply; total = taxable + exempt; }
+    else           { supply = taxable; vat = Math.floor(supply * vatRate); total = supply + exempt + vat; }
+  } else {
+    supply = order.supply_amount || 0; vat = order.vat_amount || 0;
+    exempt = order.exempt_amount || 0; total = order.total || 0;
+  }
+
+  const minRows = 8;   // 빈 줄을 채워 표 모양을 유지한다
+  const blanks = Math.max(0, minRows - rows.length);
+
+  document.getElementById('sheet').innerHTML = `
+    <h1 class="doc-title">${title}</h1>
+    <div class="meta">
+      <div class="no">문서번호 ${esc(order.no || '#' + order.id)}</div>
+      <div class="no">${isStatement ? '거래일자' : '견적일자'} ${esc(order.date || '')}</div>
+    </div>
+
+    <div class="parties">
+      <div class="party">
+        <h2>공 급 받 는 자</h2>
+        <table>
+          <tr><th>상호</th><td>${esc(order.cust_name || order.customer || '')}</td></tr>
+          <tr><th>대표자</th><td>${esc(order.cust_rep || '')}</td></tr>
+          <tr><th>사업자번호</th><td>${esc(order.cust_business_no || '')}</td></tr>
+          <tr><th>연락처</th><td>${esc(order.cust_phone || '')}</td></tr>
+          <tr><th>주소</th><td>${esc(addr)}</td></tr>
+        </table>
+      </div>
+      <div class="party">
+        <h2>공 급 자</h2>
+        <table>
+          <tr><th>상호</th><td>${esc(company.name || '')}</td></tr>
+          <tr><th>대표자</th><td>${esc(company.ceo || '')}${showStamp ? ' <span style="color:#999">(인)</span>' : ''}</td></tr>
+          <tr><th>사업자번호</th><td>${esc(company.business_no || '')}</td></tr>
+          <tr><th>연락처</th><td>${esc(company.phone || '')}${company.fax ? ' / FAX ' + esc(company.fax) : ''}</td></tr>
+          <tr><th>주소</th><td>${esc(company.address || '')}</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div style="font-size:12px;margin-bottom:8px">
+      합계금액 <b>일금 ${hangulAmount(total)}원정</b>
+      <span style="color:var(--muted)">(₩${num(total)})</span>
+      ${inclusive ? '<span style="color:var(--muted)"> · 단가는 부가세 포함</span>' : ''}
+    </div>
+
+    <table class="items">
+      <thead>
+        <tr>
+          <th style="width:8mm">No</th>
+          <th>품 목</th>
+          <th style="width:32mm">규 격</th>
+          <th style="width:16mm">수량</th>
+          <th style="width:12mm">단위</th>
+          <th style="width:24mm">단 가</th>
+          <th style="width:28mm">금 액</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.length === 0 && blanks === minRows
+          ? `<tr><td colspan="7" class="c" style="padding:20px;color:var(--muted)">${isStatement ? '출고된 품목이 없습니다.' : '품목이 없습니다.'}</td></tr>`
+          : rows.map((r, i) => `
+          <tr>
+            <td class="c">${i + 1}</td>
+            <td>${esc(r.name || '')}${r.tax_free ? ' <span style="color:#666;font-size:10px">(면세)</span>' : ''}</td>
+            <td>${esc(r.spec || '')}</td>
+            <td class="r">${qty(r.showQty)}</td>
+            <td class="c">${esc(r.unit || '')}</td>
+            <td class="r">${num(r.unit_price)}</td>
+            <td class="r">${num(r.amount)}</td>
+          </tr>`).join('') + Array.from({ length: rows.length ? blanks : 0 }, () =>
+            '<tr><td class="c">&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>').join('')}
+      </tbody>
+    </table>
+
+    <div class="summary">
+      <table>
+        ${isStatement ? '<tr><th colspan="2" style="text-align:center;background:#f8fafc;font-size:11px">이번 거래분</th></tr>' : ''}
+        <tr><th>공급가액</th><td>${num(supply)}</td></tr>
+        ${exempt ? `<tr><th>면세</th><td>${num(exempt)}</td></tr>` : ''}
+        <tr><th>부가세 (${Math.round(vatRate * 1000) / 10}%)</th><td>${num(vat)}</td></tr>
+        <tr class="total"><th>합 계</th><td>${num(total)}</td></tr>
+        ${isStatement ? `
+        <tr><th>주문 총액</th><td>${num(order.total)}</td></tr>
+        <tr><th>기수금</th><td>${num(order.total_paid)}</td></tr>
+        <tr><th>미수 잔액</th><td>${num(unpaid)}</td></tr>` : ''}
+      </table>
+    </div>
+
+    ${order.memo_customer ? `<div class="notes"><h3>특기사항</h3>${esc(order.memo_customer)}</div>` : ''}
+
+    <div class="foot">
+      ${showBank && (company.bank_name || company.bank_account)
+        ? `입금계좌 : ${esc(company.bank_name || '')} ${esc(company.bank_account || '')} ${esc(company.bank_holder || company.name || '')}<br>` : ''}
+      ${isStatement
+        ? '위와 같이 거래하였음을 확인합니다.'
+        : '본 견적서의 유효기간은 발행일로부터 30일입니다.'}
+    </div>
+
+    ${showStamp ? `<div class="stamp">${esc(order.date || '')}<br><br>
+      <b>${esc(company.name || '')}</b> <span style="color:#999">(인)</span></div>` : ''}
+  `;
+  document.title = `${title} ${order.no || ''} — ColdStorage`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -64,6 +64,17 @@
   <div class="bg-white border-b border-slate-200 px-6 flex gap-4" id="main-tabs">
     <button class="mtab py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-t="unpaid">미수금 현황</button>
     <button class="mtab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-t="history">입금 이력</button>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-2 py-1.5">
+      <input id="search" type="text" placeholder="고객, 주문번호, 메모 검색…" autocomplete="off"
+             class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-60 focus:outline-none focus:border-blue-400">
+      <input id="from" type="date" class="border border-slate-200 rounded px-2 py-1.5 text-xs">
+      <span class="text-xs text-slate-400">~</span>
+      <input id="to" type="date" class="border border-slate-200 rounded px-2 py-1.5 text-xs">
+      <button onclick="clearFilters()" class="text-xs px-2 py-1.5 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">초기화</button>
+      <button onclick="exportCurrent()" title="현재 탭을 엑셀(CSV)로 내보내기"
+              class="text-xs px-2 py-1.5 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">CSV</button>
+    </div>
   </div>
 
   <div class="flex-1 overflow-y-auto p-6" id="tab-content"></div>
@@ -163,8 +174,12 @@ document.getElementById('main-tabs').addEventListener('click', e => {
   document.querySelectorAll('.mtab').forEach(b => {
     b.className = 'mtab py-2 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
   });
+  shownCount = PAGE_SIZE;
   renderTab(btn.dataset.t);
 });
+
+document.getElementById('search').addEventListener('input', debounce(applyFilters, 180));
+for (const id of ['from','to']) document.getElementById(id).addEventListener('change', applyFilters);
 
 function renderTab(t) {
   curTab = t;
@@ -173,11 +188,29 @@ function renderTab(t) {
   else renderHistory(tc);
 }
 
+const val = id => document.getElementById(id)?.value.trim() || '';
+let shownCount = PAGE_SIZE;
+function applyFilters() { shownCount = PAGE_SIZE; renderTab(curTab || 'unpaid'); }
+function showMore()     { shownCount += PAGE_SIZE; renderTab(curTab || 'unpaid'); }
+function clearFilters() {
+  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
+  applyFilters();
+}
+function exportCurrent() {
+  const p = { q: val('search'), from: val('from'), to: val('to') };
+  if (curTab === 'history') exportCsv('payments', p);
+  else exportCsv('quotations', { ...p, status: 'ordered,partial,shipped,done' });
+}
+
 function renderUnpaid(tc) {
-  const rows = orders.filter(o => (o.total||0) > (o.total_paid||0) && tracksUnpaid(o.order_status));
+  const q = val('search'), from = val('from'), to = val('to');
+  const custById = new Map(customers.map(c => [c.id, c.name]));
+  const rows = orders.filter(o => (o.total||0) > (o.total_paid||0) && tracksUnpaid(o.order_status)
+    && inRange(o.date, from, to)
+    && matches(q, o.no, o.customer, custById.get(o.customer_id), o.items));
   rows.sort((a,b) => ((b.total||0)-(b.total_paid||0)) - ((a.total||0)-(a.total_paid||0)));
 
-  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">미수금 없음 🎉</div>'; return; }
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">조건에 맞는 미수금이 없습니다.</div>'; return; }
 
   tc.innerHTML = `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
     <table class="w-full text-sm">
@@ -191,7 +224,7 @@ function renderUnpaid(tc) {
         <th class="p-3 text-center text-xs font-medium text-slate-500">상태</th>
         <th class="p-3 w-20"></th>
       </tr></thead>
-      <tbody>${rows.map(o => {
+      <tbody>${rows.slice(0, shownCount).map(o => {
         const c = customers.find(x=>x.id===o.customer_id);
         const name = c ? c.name : (o.customer||'—');
         const unpaid = (o.total||0) - (o.total_paid||0);
@@ -213,12 +246,25 @@ function renderUnpaid(tc) {
         </tr>`;
       }).join('')}</tbody>
     </table>
+    ${moreBar(rows.length)}
   </div>`;
 }
 
+/** 더 보기 — 전체를 한 번에 그리면 건수가 늘수록 검색 입력마다 무거워진다 */
+function moreBar(total) {
+  const rest = total - Math.min(total, shownCount);
+  return rest > 0
+    ? `<div class="p-3 text-center border-t border-slate-100"><button onclick="showMore()"
+         class="text-xs px-4 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">${rest}건 더 보기</button></div>`
+    : `<div class="p-2 text-center text-xs text-slate-300 border-t border-slate-100">${total}건</div>`;
+}
+
 function renderHistory(tc) {
-  const rows = [...payments].sort((a,b) => (b.paid_at||'') > (a.paid_at||'') ? 1 : -1);
-  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">입금 이력 없음</div>'; return; }
+  const q = val('search'), from = val('from'), to = val('to');
+  const rows = payments
+    .filter(p => inRange(p.paid_at, from, to) && matches(q, p.no, p.customer, p.note))
+    .sort((a,b) => (b.paid_at||'') > (a.paid_at||'') ? 1 : -1);
+  if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">조건에 맞는 입금 이력이 없습니다.</div>'; return; }
   tc.innerHTML = `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
     <table class="w-full text-sm">
       <thead class="bg-slate-50"><tr>
@@ -229,7 +275,7 @@ function renderHistory(tc) {
         <th class="p-3 text-left text-xs font-medium text-slate-500">메모</th>
         <th class="p-3 w-10"></th>
       </tr></thead>
-      <tbody>${rows.map(p => `<tr class="border-t border-slate-50 hover:bg-slate-50">
+      <tbody>${rows.slice(0, shownCount).map(p => `<tr class="border-t border-slate-50 hover:bg-slate-50">
         <td class="p-3 text-xs">${esc(p.paid_at||'—')}</td>
         <td class="p-3 text-xs text-slate-500">${esc(p.no||'#'+p.order_id)}</td>
         <td class="p-3 text-xs">${esc(p.customer||'—')}</td>
@@ -238,6 +284,7 @@ function renderHistory(tc) {
         <td class="p-3 text-center"><button onclick="delPayment(${p.id},${p.order_id})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
       </tr>`).join('')}</tbody>
     </table>
+    ${moreBar(rows.length)}
   </div>`;
 }
 
