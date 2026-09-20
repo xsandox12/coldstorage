@@ -144,6 +144,30 @@ check "  quotations 테이블 생존"  "true" "$(body "$BASE/api/quotations" | j
 check "제네릭 PATCH 로 total 변조 차단" 405 \
       "$(code -X PATCH "$BASE/api/quotations/$OID" -H 'Content-Type: application/json' -d '{"total":999999999}')"
 
+# ── P0-9: 회계·대시보드 정합성 ──────────────────────────────
+echo
+echo "[P0-9 회계 정합성]"
+check "음수 입금 -> 400"          400 "$(code -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \
+                                        -d "{\"order_id\":$OID,\"amount\":-1000}")"
+check "정상 입금 -> 200"          200 "$(code -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \
+                                        -d "{\"order_id\":$OID,\"amount\":5000}")"
+check "출고 미완 주문 완료묶음 -> 400" 400 \
+      "$(code -X POST "$BASE/api/completion-batches" -H 'Content-Type: application/json' \
+         -d "{\"order_ids\":[$OID]}")"
+check "취소 사유 없이 -> 400"     400 "$(code -X PATCH "$BASE/api/quotations/$OID/cancel" \
+                                        -H 'Content-Type: application/json' -d '{"reason":"  "}')"
+check "사유 있는 취소 -> 200"     200 "$(code -X PATCH "$BASE/api/quotations/$OID/cancel" \
+                                        -H 'Content-Type: application/json' -d '{"reason":"스모크 테스트"}')"
+check "취소건은 미수금에서 제외" "true" \
+      "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).workqueue.every(w=>w.id!==$OID)")"
+check "취소된 주문 입금 -> 400"   400 "$(code -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \
+                                        -d "{\"order_id\":$OID,\"amount\":1000}")"
+check "취소 해제 -> 200"          200 "$(code -X PATCH "$BASE/api/quotations/$OID/uncancel")"
+check "이력 조회에 취소 기록"     "true" \
+      "$(body "$BASE/api/quotations/$OID/history" | jsonq "JSON.parse(s).changes.some(c=>c.to_status==='cancelled')")"
+check "대시보드 내부메모 미노출"  "true" \
+      "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"

@@ -189,6 +189,24 @@ for (const sql of [
   `ALTER TABLE as_records ADD COLUMN assignee TEXT DEFAULT ''`,
 ]) { try { db.exec(sql) } catch {} }
 
+// 인덱스 — PK/UNIQUE 외에 하나도 없어 목록·조인이 전부 full scan 이었다
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_order_items_order    ON order_items(order_id);
+  CREATE INDEX IF NOT EXISTS idx_payments_order       ON payments(order_id);
+  CREATE INDEX IF NOT EXISTS idx_shipments_order      ON shipments(order_id);
+  CREATE INDEX IF NOT EXISTS idx_shipments_item       ON shipments(item_id);
+  CREATE INDEX IF NOT EXISTS idx_shipments_batch      ON shipments(batch_id);
+  CREATE INDEX IF NOT EXISTS idx_quotations_customer  ON quotations(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_quotations_status    ON quotations(order_status);
+  CREATE INDEX IF NOT EXISTS idx_quotations_date      ON quotations(date);
+  CREATE INDEX IF NOT EXISTS idx_purchase_items_p     ON purchase_items(purchase_id);
+  CREATE INDEX IF NOT EXISTS idx_purchase_pay_p       ON purchase_payments(purchase_id);
+  CREATE INDEX IF NOT EXISTS idx_purchase_recv_p      ON purchase_receipts(purchase_id);
+  CREATE INDEX IF NOT EXISTS idx_purchase_recv_item   ON purchase_receipts(item_id);
+  CREATE INDEX IF NOT EXISTS idx_status_changes_order ON status_changes(order_id);
+  CREATE INDEX IF NOT EXISTS idx_as_status            ON as_records(status);
+`);
+
 // JSON → SQLite 최초 마이그레이션
 (function migrate() {
   const dir = path.join(ROOT, 'db');
@@ -257,8 +275,15 @@ function rowIn(table, item) {
 }
 
 // ─── CRUD 헬퍼 ───────────────────────────────────────────────
+// ORDER BY 가 없으면 목록 순서가 DB 물리 순서라 불확정이다
+const TABLE_ORDER = {
+  quotations: 'id DESC', purchases: 'id DESC', as_records: 'date DESC, id DESC',
+  customers: 'name', products: 'cat1, cat2, name', drawings: 'id DESC',
+  order_items: 'sort_order, id', purchase_items: 'sort_order, id',
+};
 function getAll(cfg) {
-  return db.prepare(`SELECT * FROM ${cfg.table}`).all().map(r => rowOut(cfg.table, r));
+  const order = TABLE_ORDER[cfg.table] ? ` ORDER BY ${TABLE_ORDER[cfg.table]}` : '';
+  return db.prepare(`SELECT * FROM ${cfg.table}${order}`).all().map(r => rowOut(cfg.table, r));
 }
 function getOne(cfg, id) {
   return rowOut(cfg.table, db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(id));
@@ -291,68 +316,92 @@ function recalcPaid(orderId) {
   db.prepare('UPDATE quotations SET total_paid=? WHERE id=?').run(row.s, orderId);
 }
 
-// 주문 총액을 order_items 에서 재계산한다 (캐시 컬럼 드리프트 방지).
-function recalcOrderTotal(orderId) {
-  const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM order_items WHERE order_id=?').get(orderId).s;
-  db.prepare('UPDATE quotations SET total=? WHERE id=?').run(Math.round(total), orderId);
+// 판매(출고)와 구매(입고)는 구조가 같아 하나의 설정으로 처리한다.
+const LINE_ITEM = {
+  sales: {
+    items: 'order_items', parentCol: 'order_id', parent: 'quotations',
+    ledger: 'shipments',  doneCol: 'shipped_qty', word: '출고',
+    after: id => autoStatus(id),
+  },
+  purchase: {
+    items: 'purchase_items', parentCol: 'purchase_id', parent: 'purchases',
+    ledger: 'purchase_receipts', doneCol: 'received_qty', word: '입고',
+    after: id => autoReceiveStatus(id),
+  },
+};
+
+// 부모의 total 을 품목에서 재계산한다 (캐시 컬럼 드리프트 방지).
+function recalcTotal(cfg, parentId) {
+  const s = db.prepare(`SELECT COALESCE(SUM(qty*unit_price),0) as s FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).get(parentId).s;
+  db.prepare(`UPDATE ${cfg.parent} SET total=? WHERE id=?`).run(Math.round(s), parentId);
 }
 
-// shipments 원장에서 shipped_qty 를 다시 계산한다. 클라이언트가 보낸 값을 믿지 않는다.
-function recalcShippedQty(orderId) {
-  db.prepare(`UPDATE order_items SET shipped_qty = COALESCE(
-                (SELECT SUM(s.qty) FROM shipments s WHERE s.item_id = order_items.id), 0)
-              WHERE order_id = ?`).run(orderId);
+// 원장에서 출고/입고 수량을 다시 계산한다. 클라이언트가 보낸 값을 믿지 않는다.
+function recalcLedgerQty(cfg, parentId) {
+  db.prepare(`UPDATE ${cfg.items} SET ${cfg.doneCol} = COALESCE(
+                (SELECT SUM(l.qty) FROM ${cfg.ledger} l WHERE l.item_id = ${cfg.items}.id), 0)
+              WHERE ${cfg.parentCol} = ?`).run(parentId);
 }
 
-// 품목 저장 — DELETE 후 재INSERT 하면 id 가 바뀌어 shipments.item_id 가 끊기고
-// FK 위반으로 요청이 실패한다. 그래서 id 를 보존하는 diff 방식으로 처리한다.
+// 품목 저장 — DELETE 후 재INSERT 하면 id 가 바뀌어 원장의 item_id 가 끊기고
+// FK 위반으로 요청이 실패한다(그리고 예전엔 서버가 죽었다).
+// 그래서 id 를 보존하는 diff 방식으로 처리한다.
 // 반환: 오류 메시지(문자열) 또는 null
-function saveOrderItems(orderId, items) {
-  const existing = db.prepare('SELECT id,qty,shipped_qty FROM order_items WHERE order_id=?').all(orderId);
+function saveLineItems(cfg, parentId, items) {
+  const existing = db.prepare(`SELECT id,qty,${cfg.doneCol} as done FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).all(parentId);
   const byId = new Map(existing.map(r => [r.id, r]));
   const keep = new Set();
 
   for (const item of items) {
     const qty = Number(item.qty) || 0;
-    const unitPrice = Number(item.unit_price) || 0;
-    if (qty < 0 || unitPrice < 0) return '수량·단가는 음수일 수 없습니다.';
+    if (qty < 0 || (Number(item.unit_price) || 0) < 0) return '수량·단가는 음수일 수 없습니다.';
     const id = Number(item.id);
     if (byId.has(id)) {
-      // 이미 출고된 수량보다 적게 줄이려 하면 원장과 어긋난다
       const cur = byId.get(id);
-      if (qty < cur.shipped_qty) {
-        return `이미 ${cur.shipped_qty} 출고된 품목의 수량을 ${qty} 로 줄일 수 없습니다.`;
+      if (qty < cur.done) {
+        return `이미 ${cur.done} ${cfg.word}된 품목의 수량을 ${qty} 로 줄일 수 없습니다.`;
       }
       keep.add(id);
     }
   }
-  // 출고 이력이 있는 품목은 삭제할 수 없다
   for (const row of existing) {
-    if (!keep.has(row.id) && row.shipped_qty > 0) {
-      return '출고 이력이 있는 품목은 삭제할 수 없습니다. 먼저 출고를 취소하세요.';
+    if (!keep.has(row.id) && row.done > 0) {
+      return `${cfg.word} 이력이 있는 품목은 삭제할 수 없습니다.`;
     }
   }
 
   db.transaction(() => {
-    const del = db.prepare('DELETE FROM order_items WHERE id=?');
+    const del = db.prepare(`DELETE FROM ${cfg.items} WHERE id=?`);
     for (const row of existing) if (!keep.has(row.id)) del.run(row.id);
 
-    const upd = db.prepare(`UPDATE order_items SET name=?,spec=?,unit=?,qty=?,unit_price=?,note=?,sort_order=?
-                            WHERE id=?`);
-    const ins = db.prepare(`INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order)
+    const upd = db.prepare(`UPDATE ${cfg.items} SET name=?,spec=?,unit=?,qty=?,unit_price=?,note=?,sort_order=? WHERE id=?`);
+    const ins = db.prepare(`INSERT INTO ${cfg.items} (${cfg.parentCol},name,spec,unit,qty,unit_price,${cfg.doneCol},note,sort_order)
                             VALUES (?,?,?,?,?,?,0,?,?)`);
     items.forEach((item, i) => {
       const vals = [item.name||'', item.spec||'', item.unit||'EA',
                     Number(item.qty)||0, Number(item.unit_price)||0, item.note||'', i];
       const id = Number(item.id);
       if (keep.has(id)) upd.run(...vals, id);
-      else ins.run(orderId, ...vals);
+      else ins.run(parentId, ...vals);
     });
 
-    recalcShippedQty(orderId);
-    recalcOrderTotal(orderId);
-    autoStatus(orderId);
+    recalcLedgerQty(cfg, parentId);
+    recalcTotal(cfg, parentId);
+    cfg.after(parentId);
   })();
+  return null;
+}
+
+// 원장 등록(출고/입고) 공통 검증 — 오류 메시지 또는 null
+function validateLedgerEntry(cfg, parentId, itemId, qty, blockedStatuses, statusCol) {
+  if (!Number.isFinite(qty) || qty <= 0) return `${cfg.word} 수량은 0보다 커야 합니다.`;
+  const parent = db.prepare(`SELECT ${statusCol} as st FROM ${cfg.parent} WHERE id=?`).get(parentId);
+  if (!parent) return '대상을 찾을 수 없습니다.';
+  if (blockedStatuses.includes(parent.st)) return `완료·취소된 건에는 ${cfg.word}를 등록할 수 없습니다.`;
+  const item = db.prepare(`SELECT qty,${cfg.doneCol} as done FROM ${cfg.items} WHERE id=? AND ${cfg.parentCol}=?`).get(itemId, parentId);
+  if (!item) return '해당 건의 품목이 아닙니다.';
+  const remain = item.qty - item.done;
+  if (qty > remain + 1e-9) return `잔여 수량(${remain})을 초과할 수 없습니다.`;
   return null;
 }
 
@@ -558,16 +607,29 @@ async function handle(req, res) {
     const ym  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     const kpi = {
       thisMonthDraft:   db.prepare(`SELECT COUNT(*) as n FROM quotations WHERE order_status='draft' AND date LIKE ?`).get(`${ym}%`).n,
-      inProgress:       db.prepare(`SELECT COUNT(*) as n FROM quotations WHERE order_status IN ('ordered','partial')`).get().n,
-      totalUnpaid:      db.prepare(`SELECT COALESCE(SUM(total - total_paid),0) as s FROM quotations WHERE order_status NOT IN ('done') AND total > total_paid`).get().s,
+      // shipped 포함 — 출고는 끝났지만 완료 묶음 전인 주문도 진행중이다
+      inProgress:       db.prepare(`SELECT COUNT(*) as n FROM quotations WHERE order_status IN ('ordered','partial','shipped')`).get().n,
+      // done 포함 — 납품이 끝났는데 못 받은 돈이야말로 미수금이다. draft·cancelled 만 제외
+      totalUnpaid:      db.prepare(`SELECT COALESCE(SUM(total - total_paid),0) as s FROM quotations
+                                    WHERE order_status NOT IN ('draft','cancelled') AND total > total_paid`).get().s,
       openAS:           db.prepare(`SELECT COUNT(*) as n FROM as_records WHERE status='OPEN'`).get().n,
     };
-    const workqueue = [
-      ...db.prepare(`SELECT id,no,customer,total,total_paid,date,'미수금' as tag FROM quotations WHERE total > total_paid AND order_status NOT IN ('draft','done') ORDER BY date LIMIT 10`).all(),
-      ...db.prepare(`SELECT id,cust_name as customer,issue,date,urgency,'AS' as tag FROM as_records WHERE status='OPEN' ORDER BY date LIMIT 5`).all(),
-      ...db.prepare(`SELECT id,no,customer,date,'부분출고' as tag FROM quotations WHERE order_status='partial' ORDER BY date LIMIT 5`).all(),
-    ];
-    const recent = db.prepare(`SELECT q.*,c.name as cust_name FROM quotations q LEFT JOIN customers c ON q.customer_id=c.id ORDER BY q.id DESC LIMIT 10`).all();
+    // 부분출고 건이 미수금 목록에도 걸려 두 번 뜨던 문제 → 부분출고를 우선 태그로 잡고
+    // 미수금 목록에서는 제외한다. 정렬은 최신순(오름차순이면 오래된 건만 남는다).
+    const partials = db.prepare(`SELECT id,no,customer,date,'부분출고' as tag FROM quotations
+                                 WHERE order_status='partial' ORDER BY date DESC LIMIT 5`).all();
+    const partialIds = new Set(partials.map(r => r.id));
+    const unpaid = db.prepare(`SELECT id,no,customer,total,total_paid,date,'미수금' as tag FROM quotations
+                               WHERE total > total_paid AND order_status NOT IN ('draft','cancelled')
+                               ORDER BY date DESC LIMIT 10`).all().filter(r => !partialIds.has(r.id));
+    const asItems = db.prepare(`SELECT id,cust_name as customer,issue,date,urgency,'AS' as tag FROM as_records
+                                WHERE status='OPEN' ORDER BY date DESC LIMIT 5`).all();
+    // id 가 서로 다른 테이블 것이라 그대로 합치면 충돌한다 → 태그를 붙인 키를 준다
+    const workqueue = [...partials, ...unpaid, ...asItems].map(r => ({ ...r, key: `${r.tag}-${r.id}` }));
+    // q.* 는 내부 메모(memo_internal)까지 내보내므로 필요한 컬럼만 고른다
+    const recent = db.prepare(`SELECT q.id,q.no,q.customer,q.date,q.total,q.total_paid,q.order_status,c.name as cust_name
+                               FROM quotations q LEFT JOIN customers c ON q.customer_id=c.id
+                               ORDER BY q.id DESC LIMIT 10`).all();
     return json(res, 200, { kpi, workqueue, recent });
   }
 
@@ -579,11 +641,19 @@ async function handle(req, res) {
     }
     if (method === 'POST') {
       const body = await parseBody(req);
-      if (!body || !body.order_id || !body.amount) return json(res, 400, { ok:false, error:'order_id, amount 필수' });
-      const stmt = db.prepare('INSERT INTO payments (order_id,amount,paid_at,note) VALUES (?,?,?,?)');
-      const r = stmt.run(body.order_id, body.amount, body.paid_at||'', body.note||'');
-      recalcPaid(body.order_id);
-      return json(res, 200, { ok:true, id: r.lastInsertRowid });
+      if (!body || !body.order_id) return json(res, 400, { ok:false, error:'order_id, amount 필수' });
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return json(res, 400, { ok:false, error:'입금액은 0보다 커야 합니다.' });
+      const order = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(body.order_id);
+      if (!order) return json(res, 400, { ok:false, error:'주문을 찾을 수 없습니다.' });
+      if (order.order_status === 'cancelled') return json(res, 400, { ok:false, error:'취소된 주문에는 입금을 등록할 수 없습니다.' });
+      let id;
+      db.transaction(() => {
+        id = db.prepare('INSERT INTO payments (order_id,amount,paid_at,note) VALUES (?,?,?,?)')
+               .run(body.order_id, Math.round(amount), body.paid_at||today(), body.note||'').lastInsertRowid;
+        recalcPaid(body.order_id);
+      })();
+      return json(res, 200, { ok:true, id });
     }
   }
 
@@ -611,20 +681,9 @@ async function handle(req, res) {
     const body = await parseBody(req);
     if (!body || !body.order_id || !body.item_id) return json(res, 400, { ok:false, error:'order_id, item_id, qty 필수' });
     const qty = Number(body.qty);
-    if (!Number.isFinite(qty) || qty <= 0) return json(res, 400, { ok:false, error:'출고 수량은 0보다 커야 합니다.' });
-
-    const order = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(body.order_id);
-    if (!order) return json(res, 400, { ok:false, error:'주문을 찾을 수 없습니다.' });
-    if (['done','cancelled'].includes(order.order_status)) {
-      return json(res, 400, { ok:false, error:'완료·취소된 주문에는 출고를 등록할 수 없습니다.' });
-    }
-    // 품목이 이 주문에 속하는지 확인 — 남의 주문 품목 출고 방지
-    const item = db.prepare('SELECT id,qty,shipped_qty FROM order_items WHERE id=? AND order_id=?').get(body.item_id, body.order_id);
-    if (!item) return json(res, 400, { ok:false, error:'해당 주문의 품목이 아닙니다.' });
-    const remain = item.qty - item.shipped_qty;
-    if (qty > remain + 1e-9) {
-      return json(res, 400, { ok:false, error:`잔여 수량(${remain})을 초과할 수 없습니다.` });
-    }
+    const err = validateLedgerEntry(LINE_ITEM.sales, body.order_id, body.item_id, qty,
+                                    ['done','cancelled'], 'order_status');
+    if (err) return json(res, 400, { ok:false, error: err });
 
     db.transaction(() => {
       db.prepare('INSERT INTO shipments (order_id,item_id,qty,shipped_at,note) VALUES (?,?,?,?,?)')
@@ -655,7 +714,7 @@ async function handle(req, res) {
       if (['done','cancelled'].includes(order.order_status)) {
         return json(res, 400, { ok:false, error:'완료·취소된 주문의 품목은 수정할 수 없습니다.' });
       }
-      const err = saveOrderItems(orderId, body);
+      const err = saveLineItems(LINE_ITEM.sales, orderId, body);
       if (err) return json(res, 400, { ok:false, error: err });
       return json(res, 200, { ok:true });
     }
@@ -699,6 +758,21 @@ async function handle(req, res) {
       recordStatusChange(id, current.order_status, 'cancelled', reason);
     })();
     return json(res, 200, { ok:true });
+  }
+
+  // ── /api/quotations/:id/history — 상태 변경 이력 + 출처 견적 ──
+  // status_changes / quotation_sources 는 그동안 쓰기만 하고 읽는 경로가 없었다.
+  const mQHist = pathname.match(/^\/api\/quotations\/(\d+)\/history$/);
+  if (mQHist && method === 'GET') {
+    const id = parseInt(mQHist[1]);
+    return json(res, 200, {
+      changes: db.prepare(`SELECT id,from_status,to_status,changed_at,reason
+                           FROM status_changes WHERE order_id=? ORDER BY id DESC`).all(id),
+      sources: db.prepare(`SELECT qs.source_quotation_id, qs.source_item_ids, q.no, q.date, q.customer
+                           FROM quotation_sources qs
+                           LEFT JOIN quotations q ON q.id = qs.source_quotation_id
+                           WHERE qs.order_id=?`).all(id),
+    });
   }
 
   // ── /api/quotations/:id/uncancel — 취소 해제 ─────────────────
@@ -814,17 +888,30 @@ async function handle(req, res) {
     if (method === 'POST') {
       const body = await parseBody(req);
       if (!body || !body.order_ids?.length) return json(res, 400, { ok:false, error:'order_ids 필수' });
-      const now = new Date();
-      const ds = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-      const cnt = db.prepare('SELECT COUNT(*) as n FROM completion_batches WHERE batch_no LIKE ?').get(`CB${ds}%`).n + 1;
-      const batch_no = `CB${ds}${String(cnt).padStart(3,'0')}`;
-      const br = db.prepare('INSERT INTO completion_batches (batch_no,completed_at,note) VALUES (?,?,?)').run(batch_no, body.completed_at||'', body.note||'');
-      const batchId = br.lastInsertRowid;
+
+      // 출고가 끝나지 않은 주문을 완료 처리하면 되돌릴 방법이 없다 → 먼저 막는다
+      const targets = [];
+      for (const orderId of body.order_ids) {
+        const cur = db.prepare('SELECT id,no,order_status FROM quotations WHERE id=?').get(orderId);
+        if (!cur) return json(res, 400, { ok:false, error:`주문 ${orderId} 을 찾을 수 없습니다.` });
+        if (!canTransit(cur.order_status, 'done')) {
+          return json(res, 400, { ok:false, error:`${cur.no||orderId} 은 ${cur.order_status} 상태라 완료할 수 없습니다.` });
+        }
+        const un = db.prepare(`SELECT COUNT(*) as n FROM order_items WHERE order_id=? AND shipped_qty < qty`).get(orderId).n;
+        if (un > 0) return json(res, 400, { ok:false, error:`${cur.no||orderId} 은 출고가 끝나지 않았습니다.` });
+        targets.push(cur);
+      }
+
+      const ds = today().replace(/-/g, '');
+      let batchId, batch_no;
       db.transaction(() => {
-        for (const orderId of body.order_ids) {
-          const cur = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(orderId);
-          db.prepare('UPDATE quotations SET order_status=?,completion_batch_id=? WHERE id=?').run('done', batchId, orderId);
-          if (cur) recordStatusChange(orderId, cur.order_status, 'done', `완료묶음 ${batch_no}`);
+        const cnt = db.prepare('SELECT COUNT(*) as n FROM completion_batches WHERE batch_no LIKE ?').get(`CB${ds}%`).n + 1;
+        batch_no = `CB${ds}${String(cnt).padStart(3,'0')}`;
+        batchId = db.prepare('INSERT INTO completion_batches (batch_no,completed_at,note) VALUES (?,?,?)')
+                    .run(batch_no, body.completed_at||today(), body.note||'').lastInsertRowid;
+        for (const cur of targets) {
+          db.prepare('UPDATE quotations SET order_status=?,completion_batch_id=? WHERE id=?').run('done', batchId, cur.id);
+          recordStatusChange(cur.id, cur.order_status, 'done', `완료묶음 ${batch_no}`);
         }
       })();
       return json(res, 200, { ok:true, batch_id: batchId, batch_no });
@@ -881,10 +968,17 @@ async function handle(req, res) {
   // ── /api/purchase_receipts ───────────────────────────────────
   if (pathname === '/api/purchase_receipts' && method === 'POST') {
     const body = await parseBody(req);
-    if (!body || !body.purchase_id || !body.item_id || !body.qty) return json(res, 400, { ok:false });
-    db.prepare('INSERT INTO purchase_receipts (purchase_id,item_id,qty,received_at,note) VALUES (?,?,?,?,?)').run(body.purchase_id, body.item_id, body.qty, body.received_at||'', body.note||'');
-    db.prepare('UPDATE purchase_items SET received_qty = received_qty + ? WHERE id=?').run(body.qty, body.item_id);
-    autoReceiveStatus(body.purchase_id);
+    if (!body || !body.purchase_id || !body.item_id) return json(res, 400, { ok:false, error:'purchase_id, item_id, qty 필수' });
+    const qty = Number(body.qty);
+    const err = validateLedgerEntry(LINE_ITEM.purchase, body.purchase_id, body.item_id, qty,
+                                    ['done'], 'purchase_status');
+    if (err) return json(res, 400, { ok:false, error: err });
+    db.transaction(() => {
+      db.prepare('INSERT INTO purchase_receipts (purchase_id,item_id,qty,received_at,note) VALUES (?,?,?,?,?)')
+        .run(body.purchase_id, body.item_id, qty, body.received_at||'', body.note||'');
+      db.prepare('UPDATE purchase_items SET received_qty = received_qty + ? WHERE id=?').run(qty, body.item_id);
+      autoReceiveStatus(body.purchase_id);
+    })();
     return json(res, 200, { ok:true });
   }
 
@@ -900,16 +994,12 @@ async function handle(req, res) {
     if (method === 'GET') return json(res, 200, db.prepare('SELECT * FROM purchase_items WHERE purchase_id=? ORDER BY sort_order,id').all(purchaseId));
     if (method === 'PUT') {
       const body = await parseBody(req);
-      if (!Array.isArray(body)) return json(res, 400, { ok:false });
-      db.transaction(() => {
-        db.prepare('DELETE FROM purchase_items WHERE purchase_id=?').run(purchaseId);
-        body.forEach((item, i) => {
-          db.prepare('INSERT INTO purchase_items (purchase_id,name,spec,unit,qty,unit_price,received_qty,note,sort_order) VALUES (?,?,?,?,?,?,?,?,?)').run(
-            purchaseId, item.name||'', item.spec||'', item.unit||'EA', item.qty||0, item.unit_price||0, item.received_qty||0, item.note||'', i);
-        });
-      })();
-      const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM purchase_items WHERE purchase_id=?').get(purchaseId).s;
-      db.prepare('UPDATE purchases SET total=? WHERE id=?').run(total, purchaseId);
+      if (!Array.isArray(body)) return json(res, 400, { ok:false, error:'품목 배열이 필요합니다.' });
+      const p = db.prepare('SELECT purchase_status FROM purchases WHERE id=?').get(purchaseId);
+      if (!p) return json(res, 404, { ok:false, error:'구매 건을 찾을 수 없습니다.' });
+      if (p.purchase_status === 'done') return json(res, 400, { ok:false, error:'완료된 구매 건의 품목은 수정할 수 없습니다.' });
+      const err = saveLineItems(LINE_ITEM.purchase, purchaseId, body);
+      if (err) return json(res, 400, { ok:false, error: err });
       return json(res, 200, { ok:true });
     }
   }
