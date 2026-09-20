@@ -432,6 +432,37 @@ check "  자사 상호는 설정에서"    "true" \
 code -X DELETE "$BASE/api/quotations/$S2" >/dev/null
 code -X DELETE "$BASE/api/quotations/$S3" >/dev/null
 
+# ── Phase 5: 구매 취소·삭제 (판매와 대칭) ───────────────────
+echo
+echo "[Phase 5 구매 취소]"
+PID=$(body -X POST "$BASE/api/purchases" -H 'Content-Type: application/json' \
+           -d '{"vendor":"__seq__"}' | jsonq 'JSON.parse(s).id')
+check "발주번호를 서버가 매김"    "true" \
+      "$(body "$BASE/api/purchases/$PID" | jsonq "/^PO-\d{6}-\d+$/.test(JSON.parse(s).no)")"
+body -X PUT "$BASE/api/purchase_items/purchase/$PID" -H 'Content-Type: application/json' \
+     -d '[{"name":"panel","qty":4,"unit_price":1000}]' >/dev/null
+check "정산완료로 건너뛰기 -> 400" 400 \
+      "$(code -X PATCH "$BASE/api/purchases/$PID/status" -H 'Content-Type: application/json' -d '{"status":"done"}')"
+code -X PATCH "$BASE/api/purchases/$PID/status" -H 'Content-Type: application/json' -d '{"status":"ordered"}' >/dev/null
+check "/status 로는 취소 불가"    400 \
+      "$(code -X PATCH "$BASE/api/purchases/$PID/status" -H 'Content-Type: application/json' -d '{"status":"cancelled"}')"
+check "사유 없는 취소 -> 400"     400 \
+      "$(code -X PATCH "$BASE/api/purchases/$PID/cancel" -H 'Content-Type: application/json' -d '{}')"
+check "취소 -> 200"               200 \
+      "$(code -X PATCH "$BASE/api/purchases/$PID/cancel" -H 'Content-Type: application/json' -d '{"reason":"공급업체 사정"}')"
+check "  상태가 cancelled"        "cancelled" "$(body "$BASE/api/purchases/$PID" | jsonq 'JSON.parse(s).purchase_status')"
+check "  취소 건에 지급 등록 -> 400" 400 \
+      "$(code -X POST "$BASE/api/purchase_payments" -H 'Content-Type: application/json' -d "{\"purchase_id\":$PID,\"amount\":1000}")"
+check "  취소 건에 입고 등록 -> 400" 400 \
+      "$(code -X POST "$BASE/api/purchase_receipts" -H 'Content-Type: application/json' \
+         -d "{\"purchase_id\":$PID,\"item_id\":$(body "$BASE/api/purchase_items/purchase/$PID" | jsonq 'JSON.parse(s)[0].id'),\"qty\":1}")"
+code -X PATCH "$BASE/api/purchases/$PID/uncancel" >/dev/null
+check "★ 해제 시 취소 전 상태로 복원" "ordered" \
+      "$(body "$BASE/api/purchases/$PID" | jsonq 'JSON.parse(s).purchase_status')"
+check "발주 삭제 -> 200"          200 "$(code -X DELETE "$BASE/api/purchases/$PID")"
+check "  품목도 함께 삭제"        0 \
+      "$(body "$BASE/api/purchase_items/purchase/$PID" | jsonq 'JSON.parse(s).length')"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"

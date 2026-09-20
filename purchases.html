@@ -63,6 +63,7 @@
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="partial">부분입고</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="received">입고완료</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="done">정산완료</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="cancelled">취소</button>
       </div>
       <input id="search" type="text" placeholder="공급업체, 구매번호, 품목 검색…" autocomplete="off"
              class="w-full mt-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
@@ -127,9 +128,28 @@
   </div>
 </div>
 
+<!-- ─── 발주 취소 모달 ─────────────────────────────────────── -->
+<div id="cancel-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[420px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base text-red-600">발주 취소</h2>
+      <button onclick="closeCancelModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <p class="text-sm text-slate-600 mb-3">이 발주건을 취소 상태로 변경합니다.</p>
+    <div>
+      <label class="text-xs font-medium text-slate-500 mb-1 block">취소 사유</label>
+      <input id="cancel-reason" type="text" placeholder="공급업체 사정, 발주 오류 등" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-400">
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeCancelModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">돌아가기</button>
+      <button onclick="guard(this, submitCancel)" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">취소 처리</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const STATUS_LABEL = { draft:'작성중', ordered:'발주', partial:'부분입고', received:'입고완료', done:'정산완료' };
-const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', received:'s-shipped', done:'s-done' };
+const STATUS_LABEL = { draft:'작성중', ordered:'발주', partial:'부분입고', received:'입고완료', done:'정산완료', cancelled:'취소' };
+const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', received:'s-shipped', done:'s-done', cancelled:'s-cancelled' };
 const STATUS_FLOW  = { draft:'ordered', ordered:'received', partial:'received', received:'done' };
 const STATUS_BTN   = { draft:'발주 확정', ordered:'입고 처리', partial:'입고 처리', received:'정산 완료' };
 
@@ -220,7 +240,8 @@ async function selectPurchase(id) {
   ]);
 
   const unpaid = (purchase.total||0) - (purchase.total_paid||0);
-  const nextStatus = STATUS_FLOW[purchase.purchase_status];
+  const nextStatus  = STATUS_FLOW[purchase.purchase_status];
+  const isCancelled = purchase.purchase_status === 'cancelled';
 
   document.getElementById('empty-state').classList.add('hidden');
   const dc = document.getElementById('detail-content');
@@ -235,8 +256,15 @@ async function selectPurchase(id) {
           </div>
           <div class="text-xs text-slate-400">${esc(purchase.no||'#'+purchase.id)} · ${esc(purchase.date||'')}</div>
         </div>
-        ${nextStatus ? `<button onclick="guard(this, () => advanceStatus(${purchase.id},'${nextStatus}'))" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">${STATUS_BTN[purchase.purchase_status]}</button>` : ''}
+        <div class="flex items-center gap-2">
+          ${isCancelled
+            ? `<button onclick="guard(this, () => uncancelPurchase(${purchase.id}))" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">취소 해제</button>`
+            : `${nextStatus ? `<button onclick="guard(this, () => advanceStatus(${purchase.id},'${nextStatus}'))" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">${STATUS_BTN[purchase.purchase_status]}</button>` : ''}
+               ${purchase.purchase_status !== 'done' ? `<button onclick="openCancelModal(${purchase.id})" class="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50">거래 취소</button>` : ''}`}
+          <button onclick="guard(this, () => deletePurchase(${purchase.id}))" class="text-xs px-2 py-1.5 text-slate-400 hover:text-red-600" title="발주 삭제">🗑</button>
+        </div>
       </div>
+      ${isCancelled && purchase.cancelled_reason ? `<div class="text-xs text-red-500 mt-1">취소 사유: ${esc(purchase.cancelled_reason)}${purchase.cancelled_at ? ` (${esc(purchase.cancelled_at)})` : ''}</div>` : ''}
       <!-- 공급가는 total/1.1 로 역산하던 값이라 실제와 달랐다.
            이제 서버가 품목에서 계산한 supply_amount/vat_amount 를 그대로 쓴다. -->
       <div class="grid grid-cols-5 gap-2 mt-4">
@@ -565,20 +593,56 @@ async function submitReceiptItem(itemId, purchaseId) {
 
 async function advanceStatus(id, next) {
   if (!confirm(`"${STATUS_LABEL[next]}" 상태로 변경할까요?`)) return;
-  await api.patch(`/api/purchases/${id}/status`, { status:next });
+  if (!await tryApi(() => api.patch(`/api/purchases/${id}/status`, { status:next }))) return;
+  await reloadPurchases(id);
+}
+
+// ─── 거래 취소 ───────────────────────────────────────────────
+let cancelTargetId = null;
+function openCancelModal(id) {
+  cancelTargetId = id;
+  document.getElementById('cancel-reason').value = '';
+  document.getElementById('cancel-modal').classList.remove('hidden');
+}
+function closeCancelModal() { document.getElementById('cancel-modal').classList.add('hidden'); cancelTargetId = null; }
+
+async function submitCancel() {
+  const id = cancelTargetId;          // closeCancelModal() 이 null 로 만들므로 먼저 받아둔다
+  if (!id) return;
+  const reason = document.getElementById('cancel-reason').value.trim();
+  if (!reason) return toast('취소 사유를 입력하세요.', 'error');
+  if (!confirm('이 발주를 취소할까요?')) return;
+  if (!await tryApi(() => api.patch(`/api/purchases/${id}/cancel`, { reason }), '취소됐습니다.')) return;
+  closeCancelModal();
+  await reloadPurchases(id);
+}
+
+async function uncancelPurchase(id) {
+  if (!confirm('취소를 해제할까요?')) return;
+  if (!await tryApi(() => api.patch(`/api/purchases/${id}/uncancel`), '취소가 해제됐습니다.')) return;
+  await reloadPurchases(id);
+}
+
+async function deletePurchase(id) {
+  const p = purchases.find(x => x.id === id);
+  if (!confirm(`${p?.no || '#'+id} 발주를 삭제할까요?\n품목·입고·지급 기록이 함께 사라지며 되돌릴 수 없습니다.`)) return;
+  if (!await tryApi(() => api.del(`/api/purchases/${id}`), '삭제됐습니다.')) return;
+  curId = null;
+  await reloadPurchases(null);
+}
+
+async function reloadPurchases(selectId) {
   purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
-  await selectPurchase(id);
+  if (selectId) return selectPurchase(selectId);
+  document.getElementById('detail-content').classList.add('hidden');
+  document.getElementById('empty-state').classList.remove('hidden');
 }
 
 function openNewModal() {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth()+1).padStart(2,'0');
-  const dd = String(now.getDate()).padStart(2,'0');
-  const cnt = purchases.filter(p => p.date === today()).length + 1;
-  document.getElementById('new-no').value = `PO-${yy}${mm}${dd}-${cnt}`;
+  // 번호는 비워 두면 서버가 매긴다 (화면에서 세면 다른 사람이 만든 건을 몰라 겹친다)
+  document.getElementById('new-no').value = '';
   document.getElementById('new-modal').classList.remove('hidden');
 }
 function closeNewModal() { document.getElementById('new-modal').classList.add('hidden'); }
@@ -586,19 +650,17 @@ function closeNewModal() { document.getElementById('new-modal').classList.add('h
 async function createPurchase() {
   const vendor = document.getElementById('new-vendor').value.trim();
   if (!vendor) return alert('공급업체명을 입력하세요.');
-  const body = {
+  // 번호가 비면 서버가 매긴다. 상태·총액도 서버가 정한다.
+  const ok = await tryApi(() => api.post('/api/purchases', {
     no: document.getElementById('new-no').value,
     date: document.getElementById('new-date').value,
     vendor,
     vendor_id: document.getElementById('new-vendor-sel').value||'',
     items: document.getElementById('new-memo').value,
-    total: 0, total_paid: 0, purchase_status: 'draft', status: '진행중',
-  };
-  await api.post('/api/purchases', body);
+  }));
+  if (!ok) return;
   closeNewModal();
-  purchases = await api.get('/api/purchases');
-  purchases.sort((a,b) => b.id - a.id);
-  renderList();
+  await reloadPurchases(null);
   if (purchases.length) selectPurchase(purchases[0].id);
 }
 

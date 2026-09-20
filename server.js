@@ -208,6 +208,11 @@ for (const sql of [
   `ALTER TABLE purchases ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN assignee_id INTEGER`,
+  // 구매 취소 — 판매와 대칭. 해제 시 돌아갈 상태를 직접 들고 있는다
+  // (판매는 status_changes 에서 읽지만 구매에는 이력 테이블이 없다)
+  `ALTER TABLE purchases ADD COLUMN cancelled_at TEXT DEFAULT ''`,
+  `ALTER TABLE purchases ADD COLUMN cancelled_reason TEXT DEFAULT ''`,
+  `ALTER TABLE purchases ADD COLUMN cancelled_from TEXT DEFAULT ''`,
   /* 부가세 — total 은 "부가세 포함 합계" 로 확정한다.
    * 미수금이 total - total_paid 이고 total_paid 는 실입금액(세포함)이므로
    * total 을 공급가액으로 두면 미수금이 전건 10% 어긋난다. */
@@ -550,6 +555,12 @@ function updateOne(cfg, id, patch) {
  * (실제로 관측됨). 자식 테이블을 명시적으로 지운다. */
 const ORPHAN_CHILDREN = {
   quotations: ['DELETE FROM status_changes WHERE order_id=?', 'DELETE FROM quotation_sources WHERE order_id=?'],
+  /* 구매는 자식이 ON DELETE CASCADE 지만 purchase_receipts.item_id 는 purchase_items 를
+   * 가리키면서 ON DELETE 가 없다. 캐스케이드 순서에 기대면 FK 오류가 날 수 있으므로
+   * 입고 → 품목 순으로 직접 지운다. */
+  purchases: ['DELETE FROM purchase_receipts WHERE purchase_id=?',
+              'DELETE FROM purchase_payments WHERE purchase_id=?',
+              'DELETE FROM purchase_items WHERE purchase_id=?'],
 };
 function deleteOne(cfg, id) {
   db.transaction(() => {
@@ -714,6 +725,26 @@ const ORDER_FLOW = {
 };
 const canTransit = (from, to) => from === to || (ORDER_FLOW[from] || []).includes(to);
 
+// 구매도 같은 규칙으로 — 지금까지 구매는 화이트리스트만 있고 전이표가 없어
+// 정산 완료된 발주를 작성중으로 되돌릴 수 있었다.
+const PURCHASE_STATUSES = ['draft','ordered','partial','received','done','cancelled'];
+const PURCHASE_FLOW = {
+  draft:     ['ordered','cancelled'],
+  ordered:   ['draft','partial','received','done','cancelled'],
+  partial:   ['ordered','received','done','cancelled'],
+  received:  ['partial','done','cancelled'],
+  done:      [],
+  cancelled: ['draft'],
+};
+const canTransitPurchase = (from, to) => from === to || (PURCHASE_FLOW[from] || []).includes(to);
+
+/** 오늘 날짜 기준 다음 발주번호. PO-YYMMDD-N */
+function nextPurchaseNo(now = new Date()) {
+  const ds = `${String(now.getFullYear()).slice(2)}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const prefix = `PO-${ds}-`;
+  return `${prefix}${nextSeq('purchases', 'no', prefix)}`;
+}
+
 /* 채번은 COUNT 가 아니라 MAX 로 한다. COUNT 기반은 중간 건이 삭제되면 번호가
  * 되돌아가 직전 번호와 그대로 겹친다 — 오늘 주문 2건을 만들고 1건을 지우면
  * 다음 주문이 다시 -2 가 된다. 출고·완료 묶음도 삭제 API 가 생겨 같은 경로다. */
@@ -763,7 +794,7 @@ function recalcPurchasePaid(purchaseId) {
 
 function autoReceiveStatus(purchaseId) {
   const purchase = db.prepare('SELECT * FROM purchases WHERE id=?').get(purchaseId);
-  if (!purchase || purchase.purchase_status === 'done') return;
+  if (!purchase || ['done','cancelled'].includes(purchase.purchase_status)) return;
   const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id=?').all(purchaseId);
   if (!items.length) return;
   const allReceived = items.every(i => i.received_qty >= i.qty);
@@ -1545,6 +1576,9 @@ async function handle(req, res) {
     if (method === 'POST') {
       const body = await parseBody(req);
       if (!body || !body.purchase_id || !body.amount) return json(res, 400, { ok:false, error:'purchase_id, amount 필수' });
+      const pur = db.prepare('SELECT purchase_status FROM purchases WHERE id=?').get(body.purchase_id);
+      if (!pur) return json(res, 404, { ok:false, error:'발주를 찾을 수 없습니다.' });
+      if (pur.purchase_status === 'cancelled') return json(res, 400, { ok:false, error:'취소된 발주에는 지급을 등록할 수 없습니다.' });
       db.prepare('INSERT INTO purchase_payments (purchase_id,amount,paid_at,note) VALUES (?,?,?,?)').run(body.purchase_id, body.amount, body.paid_at||'', body.note||'');
       recalcPurchasePaid(body.purchase_id);
       return json(res, 200, { ok:true });
@@ -1571,7 +1605,7 @@ async function handle(req, res) {
     if (!body || !body.purchase_id || !body.item_id) return json(res, 400, { ok:false, error:'purchase_id, item_id, qty 필수' });
     const qty = Number(body.qty);
     const err = validateLedgerEntry(LINE_ITEM.purchase, body.purchase_id, body.item_id, qty,
-                                    ['done'], 'purchase_status');
+                                    ['done','cancelled'], 'purchase_status');
     if (err) return json(res, 400, { ok:false, error: err });
     db.transaction(() => {
       db.prepare('INSERT INTO purchase_receipts (purchase_id,item_id,qty,received_at,note) VALUES (?,?,?,?,?)')
@@ -1597,11 +1631,26 @@ async function handle(req, res) {
       if (!Array.isArray(body)) return json(res, 400, { ok:false, error:'품목 배열이 필요합니다.' });
       const p = db.prepare('SELECT purchase_status FROM purchases WHERE id=?').get(purchaseId);
       if (!p) return json(res, 404, { ok:false, error:'구매 건을 찾을 수 없습니다.' });
-      if (p.purchase_status === 'done') return json(res, 400, { ok:false, error:'완료된 구매 건의 품목은 수정할 수 없습니다.' });
+      if (['done','cancelled'].includes(p.purchase_status)) return json(res, 400, { ok:false, error:'완료·취소된 구매 건의 품목은 수정할 수 없습니다.' });
       const err = saveLineItems(LINE_ITEM.purchase, purchaseId, body);
       if (err) return json(res, 400, { ok:false, error: err });
       return json(res, 200, { ok:true });
     }
+  }
+
+  // ── POST /api/purchases ──────────────────────────────────────
+  // 판매와 같은 이유로 발주번호도 서버가 매긴다 (화면의 COUNT 는 겹친다).
+  if (pathname === '/api/purchases' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!body) return json(res, 400, { ok:false });
+    if (body.no && db.prepare('SELECT 1 FROM purchases WHERE no=?').get(body.no))
+      return json(res, 409, { ok:false, error:'이미 있는 발주번호입니다.' });
+    const r = db.prepare(`INSERT INTO purchases (no,date,vendor,vendor_id,items,total,total_paid,purchase_status,status,memo,created_by)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      body.no || nextPurchaseNo(), body.date || today(), body.vendor || '', body.vendor_id || '',
+      body.items || '', 0, 0, 'draft', '진행중', body.memo || '', req.user.name || req.user.username
+    );
+    return json(res, 200, { ok:true, ...getOne(TABLES.purchases, r.lastInsertRowid) });
   }
 
   // ── PATCH /api/purchases/:id/status ──────────────────────────
@@ -1609,10 +1658,43 @@ async function handle(req, res) {
   if (mPStat && method === 'PATCH') {
     const id   = parseInt(mPStat[1]);
     const body = await parseBody(req);
-    const valid = ['draft','ordered','partial','received','done'];
-    if (!body || !valid.includes(body.status)) return json(res, 400, { ok:false });
+    if (!body || !PURCHASE_STATUSES.includes(body.status)) return json(res, 400, { ok:false, error:'알 수 없는 상태입니다.' });
+    // 취소는 사유를 남기는 전용 경로로만 — 사유 없는 취소건이 생기지 않도록
+    if (body.status === 'cancelled') return json(res, 400, { ok:false, error:'취소는 /cancel 을 사용하세요.' });
+    const cur = db.prepare('SELECT purchase_status FROM purchases WHERE id=?').get(id);
+    if (!cur) return json(res, 404, { ok:false, error:'발주를 찾을 수 없습니다.' });
+    if (!canTransitPurchase(cur.purchase_status, body.status))
+      return json(res, 400, { ok:false, error:`${cur.purchase_status} → ${body.status} 로는 바꿀 수 없습니다.` });
     db.prepare('UPDATE purchases SET purchase_status=? WHERE id=?').run(body.status, id);
     return json(res, 200, { ok:true });
+  }
+
+  // ── PATCH /api/purchases/:id/cancel · /uncancel ──────────────
+  const mPCancel = pathname.match(/^\/api\/purchases\/(\d+)\/(cancel|uncancel)$/);
+  if (mPCancel && method === 'PATCH') {
+    const id  = parseInt(mPCancel[1]);
+    const cur = db.prepare('SELECT * FROM purchases WHERE id=?').get(id);
+    if (!cur) return json(res, 404, { ok:false, error:'발주를 찾을 수 없습니다.' });
+
+    if (mPCancel[2] === 'cancel') {
+      const body = await parseBody(req) || {};
+      const reason = String(body.reason || '').trim();
+      if (!reason) return json(res, 400, { ok:false, error:'취소 사유를 입력하세요.' });
+      if (cur.purchase_status === 'cancelled') return json(res, 400, { ok:false, error:'이미 취소된 발주입니다.' });
+      if (cur.purchase_status === 'done')      return json(res, 400, { ok:false, error:'정산 완료된 발주는 취소할 수 없습니다.' });
+      db.prepare(`UPDATE purchases SET purchase_status='cancelled',cancelled_at=?,cancelled_reason=?,cancelled_from=? WHERE id=?`)
+        .run(today(), reason, cur.purchase_status, id);
+      return json(res, 200, { ok:true });
+    }
+
+    if (cur.purchase_status !== 'cancelled') return json(res, 400, { ok:false, error:'취소 상태가 아닙니다.' });
+    // 취소 전 상태로 되돌린다. 무조건 draft 로 두면 입고·지급 기록이 있는
+    // 발주가 작성중으로 내려앉아 미지급금 집계에서 빠진다.
+    const restored = PURCHASE_STATUSES.includes(cur.cancelled_from) && cur.cancelled_from !== 'cancelled'
+                   ? cur.cancelled_from : 'draft';
+    db.prepare(`UPDATE purchases SET purchase_status=?,cancelled_at='',cancelled_reason='',cancelled_from='' WHERE id=?`)
+      .run(restored, id);
+    return json(res, 200, { ok:true, purchase_status: restored });
   }
 
   // ── blob 리소스 ──────────────────────────────────────────────
