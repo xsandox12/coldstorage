@@ -20,6 +20,8 @@
   </div>
 
   <form id="form" class="flex flex-col gap-3">
+    <input id="user" type="text" autocomplete="username" placeholder="아이디" autocapitalize="off" spellcheck="false"
+           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400">
     <input id="pw" type="password" autocomplete="current-password" placeholder="비밀번호"
            class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400">
     <p id="err" class="text-xs text-red-600 hidden"></p>
@@ -32,11 +34,12 @@
 
 <script>
 const form = document.getElementById('form');
+const user = document.getElementById('user');
 const pw   = document.getElementById('pw');
 const err  = document.getElementById('err');
 const btn  = document.getElementById('btn');
 
-pw.focus();
+user.focus();
 
 form.addEventListener('submit', async e => {
   e.preventDefault();
@@ -46,7 +49,7 @@ form.addEventListener('submit', async e => {
     const r = await fetch('/api/login', {
       method : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body   : JSON.stringify({ password: pw.value }),
+      body   : JSON.stringify({ username: user.value, password: pw.value }),
     });
     if (r.ok) { location.href = '/'; return; }
     const d = await r.json().catch(() => ({}));

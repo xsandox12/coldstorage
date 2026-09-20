@@ -4,3 +4,6 @@ data
 .gitignore
 .omc
 test_*.png
+.env
+.env.*
+!.env.example

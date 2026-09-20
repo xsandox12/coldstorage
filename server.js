@@ -169,6 +169,20 @@ db.exec(`
     source_quotation_id INTEGER,
     source_item_ids TEXT DEFAULT '[]'
   );
+  -- 사내 계정. TABLES 에 등록하지 않는다 — 제네릭 CRUD 가 열리면
+  -- GET /api/users 로 password_hash 가 그대로 나가고 POST 로 관리자를 만들 수 있다.
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    name TEXT DEFAULT '',
+    role TEXT DEFAULT 'staff',
+    active INTEGER DEFAULT 1,
+    token_version INTEGER DEFAULT 1,   -- 퇴사·비밀번호 변경 시 +1 → 발급된 토큰 전부 무효화
+    created_at TEXT DEFAULT '',
+    last_login_at TEXT DEFAULT ''
+  );
 `);
 
 // ─── 마이그레이션 ────────────────────────────────────────────
@@ -187,6 +201,13 @@ for (const sql of [
   `ALTER TABLE shipments ADD COLUMN batch_id INTEGER`,
   `ALTER TABLE as_records ADD COLUMN urgency TEXT DEFAULT 'NORMAL'`,
   `ALTER TABLE as_records ADD COLUMN assignee TEXT DEFAULT ''`,
+  // 행위자 기록 — 지금까지 어떤 엔드포인트도 "누가 했는지" 를 몰랐다
+  `ALTER TABLE status_changes ADD COLUMN user_id INTEGER`,
+  `ALTER TABLE status_changes ADD COLUMN user_name TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN created_by TEXT DEFAULT ''`,
+  `ALTER TABLE purchases ADD COLUMN created_by TEXT DEFAULT ''`,
+  `ALTER TABLE as_records ADD COLUMN created_by TEXT DEFAULT ''`,
+  `ALTER TABLE as_records ADD COLUMN assignee_id INTEGER`,
 ]) { try { db.exec(sql) } catch {} }
 
 // 인덱스 — PK/UNIQUE 외에 하나도 없어 목록·조인이 전부 full scan 이었다
@@ -205,6 +226,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_purchase_recv_item   ON purchase_receipts(item_id);
   CREATE INDEX IF NOT EXISTS idx_status_changes_order ON status_changes(order_id);
   CREATE INDEX IF NOT EXISTS idx_as_status            ON as_records(status);
+`);
+
+// 이미 쌓인 고아 이력 정리 — 삭제된 주문의 이력이 남아 있다가 재사용된 id 로
+// 새 주문에 달라붙는다 (deleteOne 의 ORPHAN_CHILDREN 참고)
+db.exec(`
+  DELETE FROM status_changes    WHERE order_id NOT IN (SELECT id FROM quotations);
+  DELETE FROM quotation_sources WHERE order_id NOT IN (SELECT id FROM quotations);
 `);
 
 // JSON → SQLite 최초 마이그레이션
@@ -326,12 +354,26 @@ function updateOne(cfg, id, patch) {
   const vals = keys.map(k => row[k] ?? null);
   return db.prepare(`UPDATE ${cfg.table} SET ${keys.map(k=>`${k}=?`).join(',')} WHERE id=?`).run(...vals, id).changes > 0;
 }
+/* status_changes / quotation_sources 는 FK 가 없어 주문을 지워도 남는다.
+ * quotations.id 는 AUTOINCREMENT 가 아니라 삭제 후 같은 id 가 재사용되므로,
+ * 새 주문이 지워진 주문의 이력을 물려받아 "내가 하지 않은 변경" 이 이력 탭에 뜬다
+ * (실제로 관측됨). 자식 테이블을 명시적으로 지운다. */
+const ORPHAN_CHILDREN = {
+  quotations: ['DELETE FROM status_changes WHERE order_id=?', 'DELETE FROM quotation_sources WHERE order_id=?'],
+};
 function deleteOne(cfg, id) {
-  db.prepare(`DELETE FROM ${cfg.table} WHERE id=?`).run(id);
+  db.transaction(() => {
+    for (const sql of ORPHAN_CHILDREN[cfg.table] || []) db.prepare(sql).run(id);
+    db.prepare(`DELETE FROM ${cfg.table} WHERE id=?`).run(id);
+  })();
 }
 // 금액·상태 캐시 컬럼을 클라이언트가 직접 덮어쓰지 못하도록 — 이 테이블들은
 // 전용 엔드포인트(/status, /cancel, /memo, /order_items/order/:id)로만 수정한다.
 const GENERIC_WRITE_BLOCKED = new Set(['quotations', 'purchases', 'order_items', 'purchase_items']);
+// 작성자를 세션에서 채워 넣는 테이블
+const CREATED_BY_TABLES = new Set(['quotations', 'purchases', 'as_records']);
+/** 방금 INSERT 된 행의 id — 생성 응답에 담아 클라이언트가 재조회하지 않게 한다 */
+const lastRowId = table => db.prepare(`SELECT MAX(id) as id FROM ${table}`).get()?.id ?? null;
 
 // ─── 전문 쿼리 ───────────────────────────────────────────────
 function recalcPaid(orderId) {
@@ -448,8 +490,10 @@ const ORDER_FLOW = {
 };
 const canTransit = (from, to) => from === to || (ORDER_FLOW[from] || []).includes(to);
 
-function recordStatusChange(orderId, fromStatus, toStatus, reason) {
-  db.prepare('INSERT INTO status_changes (order_id,from_status,to_status,reason) VALUES (?,?,?,?)').run(orderId, fromStatus||'', toStatus||'', reason||'');
+function recordStatusChange(orderId, fromStatus, toStatus, reason, user) {
+  // user_name 을 함께 박아둔다 — 계정을 지워도 이력에 누가 했는지는 남아야 한다
+  db.prepare('INSERT INTO status_changes (order_id,from_status,to_status,reason,user_id,user_name) VALUES (?,?,?,?,?,?)')
+    .run(orderId, fromStatus||'', toStatus||'', reason||'', user?.id ?? null, user ? (user.name || user.username) : '');
 }
 
 function autoStatus(orderId) {
@@ -536,8 +580,7 @@ const serveStatic = (req, res, pathname) => {
   });
 };
 
-// ─── 인증 (단일 공용 비밀번호) ────────────────────────────────
-const PASSWORD    = process.env.APP_PASSWORD || '0000';
+// ─── 인증 (아이디 + 비밀번호 계정) ───────────────────────────
 const SESSION_MAX = 7 * 24 * 60 * 60 * 1000;   // 7일
 const COOKIE_NAME = 'cs_session';
 
@@ -556,13 +599,62 @@ const safeEq = (a, b) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
-const makeToken = () => { const exp = Date.now() + SESSION_MAX; return `${exp}.${sign(exp)}`; };
-const validToken = token => {
-  if (!token) return false;
-  const [exp, mac] = String(token).split('.');
-  if (!exp || !mac || !safeEq(mac, sign(exp))) return false;
-  return Number(exp) > Date.now();
+/* 비밀번호 해시 — scrypt 는 Node 내장이라 의존성이 늘지 않는다 */
+const hashPassword = (pw, salt) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
+const makeSalt = () => crypto.randomBytes(16).toString('hex');
+
+/* 토큰에 사용자를 담는다. 종전 `exp.mac` 은 행위자를 알 수 없어
+ * 어떤 엔드포인트도 "누가 했는지" 를 기록할 수 없었다. */
+const makeToken = uid => {
+  const u = db.prepare('SELECT token_version FROM users WHERE id=?').get(uid);
+  const exp = Date.now() + SESSION_MAX;
+  const payload = `${uid}.${u?.token_version ?? 1}.${exp}`;
+  return `${payload}.${sign(payload)}`;
 };
+/** 유효하면 사용자 행을, 아니면 null */
+const authUser = token => {
+  if (!token) return null;
+  const parts = String(token).split('.');
+  if (parts.length !== 4) return null;
+  const [uid, ver, exp, mac] = parts;
+  if (!safeEq(mac, sign(`${uid}.${ver}.${exp}`))) return null;
+  if (!(Number(exp) > Date.now())) return null;
+  const u = db.prepare('SELECT id,username,name,role,active,token_version FROM users WHERE id=?').get(Number(uid));
+  // 퇴사·비밀번호 변경으로 token_version 이 오르면 기존 토큰은 전부 무효
+  if (!u || !u.active || String(u.token_version) !== String(ver)) return null;
+  return u;
+};
+
+/* 로그인 시도 제한 — 무인증 경로라 온라인 무차별 대입을 막아야 한다.
+ * 프로세스 메모리면 충분하다(단일 인스턴스). */
+const LOGIN_MAX = 10, LOGIN_WINDOW = 10 * 60 * 1000;
+const loginHits = new Map();
+function loginAllowed(key) {
+  const now = Date.now();
+  const hits = (loginHits.get(key) || []).filter(t => now - t < LOGIN_WINDOW);
+  if (hits.length >= LOGIN_MAX) { loginHits.set(key, hits); return false; }
+  hits.push(now); loginHits.set(key, hits);
+  if (loginHits.size > 1000) for (const [k, v] of loginHits) if (!v.some(t => now - t < LOGIN_WINDOW)) loginHits.delete(k);
+  return true;
+}
+
+/* 최초 계정 — 계정이 하나도 없으면 env 로 관리자 1개를 만든다.
+ * 공개 저장소이므로 비밀번호 기본값은 코드에 두지 않는다. 서버의 .env 에서만 온다.
+ * APP_PASSWORD 는 공용 비밀번호 시절의 값으로, 마이그레이션 동안만 받아준다. */
+(function seedAdmin() {
+  if (db.prepare('SELECT COUNT(*) as n FROM users').get().n > 0) return;
+  const username = process.env.ADMIN_USER || 'admin';
+  const password = process.env.ADMIN_PASSWORD || process.env.APP_PASSWORD;
+  if (!password) {
+    console.error('계정이 없습니다. .env 에 ADMIN_USER / ADMIN_PASSWORD 를 설정하고 다시 시작하세요.');
+    return;
+  }
+  const salt = makeSalt();
+  db.prepare(`INSERT INTO users (username,password_hash,salt,name,role,created_at)
+              VALUES (?,?,?,?,'admin',?)`)
+    .run(username, hashPassword(password, salt), salt, process.env.ADMIN_NAME || '관리자', today());
+  console.log(`최초 관리자 계정 '${username}' 을 생성했습니다.`);
+})();
 const readCookie = (req, name) => {
   const raw = req.headers.cookie;
   if (!raw) return null;
@@ -575,6 +667,8 @@ const readCookie = (req, name) => {
 
 // 로그인 없이 접근 가능한 경로
 const PUBLIC_PATHS = new Set(['/login.html', '/api/login', '/logout']);
+// 터널(HTTPS) 뒤에서만 Secure 를 붙인다 — 로컬 http 개발에서 쿠키가 막히면 안 된다
+const SECURE_COOKIE = process.env.COOKIE_SECURE === '1' ? 'Secure; ' : '';
 
 // ─── HTTP 서버 ──────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
@@ -599,29 +693,108 @@ async function handle(req, res) {
 
   // ── 로그인 / 로그아웃 ────────────────────────────────────────
   if (pathname === '/api/login' && method === 'POST') {
+    const who = req.socket.remoteAddress || 'unknown';
+    if (!loginAllowed(who)) return json(res, 429, { error: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' });
     const body = await parseBody(req);
-    if (!body || !safeEq(sign(body.password ?? ''), sign(PASSWORD))) {
-      return json(res, 401, { error: '비밀번호가 올바르지 않습니다.' });
+    const username = String(body?.username ?? '').trim();
+    const u = username && db.prepare('SELECT * FROM users WHERE username=?').get(username);
+    // 아이디가 없어도 같은 비용을 치러 사용자 존재 여부가 응답 시간으로 새지 않게 한다
+    const salt = u ? u.salt : 'none';
+    const hash = hashPassword(body?.password ?? '', salt);
+    if (!u || !u.active || !safeEq(hash, u.password_hash)) {
+      return json(res, 401, { error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
     }
+    db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(new Date().toISOString(), u.id);
+    loginHits.delete(who);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Set-Cookie': `${COOKIE_NAME}=${makeToken()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX / 1000}`,
+      'Set-Cookie': `${COOKIE_NAME}=${makeToken(u.id)}; Path=/; HttpOnly; SameSite=Strict; ${SECURE_COOKIE}Max-Age=${SESSION_MAX / 1000}`,
     });
-    return res.end(JSON.stringify({ ok: true }));
+    return res.end(JSON.stringify({ ok: true, name: u.name || u.username, role: u.role }));
   }
   if (pathname === '/logout') {
     res.writeHead(302, {
       'Location': '/login.html',
-      'Set-Cookie': `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`,
+      'Set-Cookie': `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; ${SECURE_COOKIE}Max-Age=0`,
     });
     return res.end();
   }
 
   // ── 인증 게이트 ─────────────────────────────────────────────
-  if (!PUBLIC_PATHS.has(pathname) && !validToken(readCookie(req, COOKIE_NAME))) {
+  // req.user 를 채워 이후 핸들러가 행위자를 기록할 수 있게 한다
+  req.user = authUser(readCookie(req, COOKIE_NAME));
+  if (!PUBLIC_PATHS.has(pathname) && !req.user) {
     if (pathname.startsWith('/api/')) return json(res, 401, { error: '로그인이 필요합니다.' });
     res.writeHead(302, { 'Location': '/login.html' });
     return res.end();
+  }
+
+  // ── 계정 ────────────────────────────────────────────────────
+  // users 는 TABLES 에 없다. 제네릭 CRUD 로 password_hash 가 나가면 안 되므로
+  // 필요한 컬럼만 내보내는 전용 경로만 연다.
+  if (pathname === '/api/me' && method === 'GET') {
+    return json(res, 200, { id:req.user.id, username:req.user.username, name:req.user.name, role:req.user.role });
+  }
+  if (pathname === '/api/users' && method === 'GET') {
+    // 담당자 선택용 — 비활성 계정은 목록에서 뺀다
+    return json(res, 200, db.prepare(
+      `SELECT id,username,name,role FROM users WHERE active=1 ORDER BY name, username`).all());
+  }
+  if (pathname === '/api/users' && method === 'POST') {
+    if (req.user.role !== 'admin') return json(res, 403, { ok:false, error:'관리자만 계정을 만들 수 있습니다.' });
+    const body = await parseBody(req);
+    const username = String(body?.username ?? '').trim();
+    const password = String(body?.password ?? '');
+    if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
+      return json(res, 400, { ok:false, error:'아이디는 영문·숫자·._- 조합 3~32자여야 합니다.' });
+    }
+    if (password.length < 4) return json(res, 400, { ok:false, error:'비밀번호는 4자 이상이어야 합니다.' });
+    if (db.prepare('SELECT 1 FROM users WHERE username=?').get(username)) {
+      return json(res, 409, { ok:false, error:'이미 있는 아이디입니다.' });
+    }
+    const salt = makeSalt();
+    const info = db.prepare(`INSERT INTO users (username,password_hash,salt,name,role,created_at)
+                             VALUES (?,?,?,?,?,?)`)
+      .run(username, hashPassword(password, salt), salt,
+           String(body?.name ?? '').trim(), body?.role === 'admin' ? 'admin' : 'staff', today());
+    return json(res, 200, { ok:true, id: info.lastInsertRowid });
+  }
+  const mUserPw = pathname.match(/^\/api\/users\/(\d+)\/password$/);
+  if (mUserPw && method === 'PATCH') {
+    const uid  = parseInt(mUserPw[1]);
+    const body = await parseBody(req);
+    const target = db.prepare('SELECT * FROM users WHERE id=?').get(uid);
+    if (!target) return json(res, 404, { ok:false, error:'계정을 찾을 수 없습니다.' });
+    const self = req.user.id === uid;
+    if (!self && req.user.role !== 'admin') return json(res, 403, { ok:false, error:'권한이 없습니다.' });
+    // 본인 변경은 현재 비밀번호를 확인한다 (자리를 비운 사이 탈취 방지)
+    if (self && !safeEq(hashPassword(body?.current ?? '', target.salt), target.password_hash)) {
+      return json(res, 400, { ok:false, error:'현재 비밀번호가 올바르지 않습니다.' });
+    }
+    const next = String(body?.password ?? '');
+    if (next.length < 4) return json(res, 400, { ok:false, error:'비밀번호는 4자 이상이어야 합니다.' });
+    const salt = makeSalt();
+    // token_version 을 올려 기존 세션을 전부 끊는다
+    db.prepare('UPDATE users SET password_hash=?,salt=?,token_version=token_version+1 WHERE id=?')
+      .run(hashPassword(next, salt), salt, uid);
+    if (self) {
+      res.writeHead(200, { 'Content-Type':'application/json; charset=utf-8',
+        'Set-Cookie': `${COOKIE_NAME}=${makeToken(uid)}; Path=/; HttpOnly; SameSite=Strict; ${SECURE_COOKIE}Max-Age=${SESSION_MAX / 1000}` });
+      return res.end(JSON.stringify({ ok:true }));
+    }
+    return json(res, 200, { ok:true });
+  }
+  const mUserAct = pathname.match(/^\/api\/users\/(\d+)\/active$/);
+  if (mUserAct && method === 'PATCH') {
+    if (req.user.role !== 'admin') return json(res, 403, { ok:false, error:'관리자만 계정을 비활성화할 수 있습니다.' });
+    const uid = parseInt(mUserAct[1]);
+    if (uid === req.user.id) return json(res, 400, { ok:false, error:'자기 계정은 비활성화할 수 없습니다.' });
+    const body = await parseBody(req);
+    const active = body?.active ? 1 : 0;
+    // 비활성화 시 token_version 을 올려 이미 발급된 세션도 즉시 끊는다
+    const r = db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(active, uid);
+    if (!r.changes) return json(res, 404, { ok:false, error:'계정을 찾을 수 없습니다.' });
+    return json(res, 200, { ok:true });
   }
 
   // ── /api/dashboard ──────────────────────────────────────────
@@ -759,7 +932,7 @@ async function handle(req, res) {
     }
     db.transaction(() => {
       db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run(body.status, id);
-      recordStatusChange(id, current.order_status, body.status, body.reason||'');
+      recordStatusChange(id, current.order_status, body.status, body.reason||'', req.user);
     })();
     return json(res, 200, { ok:true });
   }
@@ -778,7 +951,7 @@ async function handle(req, res) {
     db.transaction(() => {
       db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?')
         .run('cancelled', today(), reason, id);
-      recordStatusChange(id, current.order_status, 'cancelled', reason);
+      recordStatusChange(id, current.order_status, 'cancelled', reason, req.user);
     })();
     return json(res, 200, { ok:true });
   }
@@ -789,7 +962,7 @@ async function handle(req, res) {
   if (mQHist && method === 'GET') {
     const id = parseInt(mQHist[1]);
     return json(res, 200, {
-      changes: db.prepare(`SELECT id,from_status,to_status,changed_at,reason
+      changes: db.prepare(`SELECT id,from_status,to_status,changed_at,reason,user_id,user_name
                            FROM status_changes WHERE order_id=? ORDER BY id DESC`).all(id),
       sources: db.prepare(`SELECT qs.source_quotation_id, qs.source_item_ids, q.no, q.date, q.customer
                            FROM quotation_sources qs
@@ -815,7 +988,7 @@ async function handle(req, res) {
     db.transaction(() => {
       db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?')
         .run(restored, '', '', id);
-      recordStatusChange(id, 'cancelled', restored, '취소 해제');
+      recordStatusChange(id, 'cancelled', restored, '취소 해제', req.user);
       autoStatus(id);   // 출고 이력이 있으면 원장 기준 실제 상태가 이긴다
     })();
     return json(res, 200, { ok:true });
@@ -846,8 +1019,9 @@ async function handle(req, res) {
     const cnt = db.prepare('SELECT COUNT(*) as n FROM quotations WHERE date=?').get(today).n + 1;
     const no = body.no || `${String(now.getFullYear()).slice(2)}/${mm}/${dd}-${cnt}`;
     const cust = db.prepare('SELECT * FROM customers WHERE id=?').get(body.customer_id||'');
-    const r = db.prepare('INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
-      no, body.date||today, body.customer_id||'', cust?.name||body.customer||'', 'draft', 0, 0, body.memo||'', '한남냉동테크(주)', '진행중'
+    const r = db.prepare('INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+      no, body.date||today, body.customer_id||'', cust?.name||body.customer||'', 'draft', 0, 0, body.memo||'', '한남냉동테크(주)', '진행중',
+      req.user.name || req.user.username
     );
     const newId = r.lastInsertRowid;
     let sortOrder = 0;
@@ -941,7 +1115,7 @@ async function handle(req, res) {
                     .run(batch_no, body.completed_at||today(), body.note||'').lastInsertRowid;
         for (const cur of targets) {
           db.prepare('UPDATE quotations SET order_status=?,completion_batch_id=? WHERE id=?').run('done', batchId, cur.id);
-          recordStatusChange(cur.id, cur.order_status, 'done', `완료묶음 ${batch_no}`);
+          recordStatusChange(cur.id, cur.order_status, 'done', `완료묶음 ${batch_no}`, req.user);
         }
       })();
       return json(res, 200, { ok:true, batch_id: batchId, batch_no });
@@ -1073,8 +1247,12 @@ async function handle(req, res) {
     if (method === 'POST') {
       const item = await parseBody(req);
       if (!item) return json(res, 400, { ok:false, error:'본문 없음' });
+      // 작성자는 클라이언트가 보낸 값이 아니라 세션에서 가져온다
+      if (CREATED_BY_TABLES.has(cfg.table)) {
+        item.created_by = req.user.name || req.user.username;
+      }
       upsert(cfg, item);
-      return json(res, 200, { ok:true });
+      return json(res, 200, { ok:true, id: item.id ?? lastRowId(cfg.table) });
     }
     // PUT /api/:resource (테이블 전체 교체) 는 제거됨 — 프론트에서 쓰지 않으며
     // 빈 배열 하나로 테이블이 통째로 비워지는 사고 경로였다.

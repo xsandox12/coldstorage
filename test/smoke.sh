@@ -3,13 +3,14 @@
 #
 #   ./test/smoke.sh                       # 일회용 DB로 서버를 직접 띄워 테스트 (기본)
 #   BASE=https://coldstorage.agonyang.com ./test/smoke.sh   # 기존 서버 대상
-#   PASSWORD=xxxx ./test/smoke.sh
+#   USERNAME=admin PASSWORD=xxxx ./test/smoke.sh
 #
 # BASE 를 주지 않으면 임시 디렉토리에 새 DB 를 만들어 거기에만 쓴다.
 # 실 데이터(data/)는 절대 건드리지 않는다 — 과거에 테스트가 실 테이블을 비운 적이 있다.
 
 set -u
 
+USERNAME="${USERNAME:-admin}"
 PASSWORD="${PASSWORD:-0000}"
 CK="$(mktemp)"
 PASS=0; FAIL=0
@@ -29,7 +30,7 @@ if [ -z "${BASE:-}" ]; then
   PORT=$(( 19000 + (RANDOM % 1000) ))
   BASE="http://localhost:$PORT"
   echo "일회용 서버 기동 — DATA_DIR=$TMPDATA PORT=$PORT"
-  DATA_DIR="$TMPDATA" PORT="$PORT" APP_PASSWORD="$PASSWORD" \
+  DATA_DIR="$TMPDATA" PORT="$PORT" ADMIN_USER="$USERNAME" ADMIN_PASSWORD="$PASSWORD" \
     node "$(dirname "$0")/../server.js" >"$TMPDATA/server.log" 2>&1 &
   OWN_SERVER=$!
   for _ in $(seq 1 30); do
@@ -62,10 +63,13 @@ check "미인증 페이지 -> 302"      302 "$(curl -s -o /dev/null -w '%{http_c
 check "미인증 API -> 401"         401 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/dashboard")"
 check "/login.html 공개 -> 200"   200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/login.html")"
 check "틀린 비밀번호 -> 401"      401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
-                                        -H 'Content-Type: application/json' -d '{"password":"__wrong__"}')"
+                                        -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\",\"password\":\"__wrong__\"}")"
+check "없는 아이디 -> 401"        401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
+                                        -H 'Content-Type: application/json' -d "{\"username\":\"__nobody__\",\"password\":\"$PASSWORD\"}")"
 curl -s -c "$CK" -o /dev/null -X POST "$BASE/api/login" \
-     -H 'Content-Type: application/json' -d "{\"password\":\"$PASSWORD\"}"
+     -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}"
 check "로그인 후 API -> 200"      200 "$(code "$BASE/api/dashboard")"
+check "/api/me 가 사용자 반환"    "$USERNAME" "$(body "$BASE/api/me" | jsonq 'JSON.parse(s).username')"
 
 # ── P0-2: 무인증 DoS ────────────────────────────────────────
 echo
@@ -151,7 +155,12 @@ check "모르는 컬럼 무시 (500 아님)" 200 \
 check "  프로세스 생존"           200 "$(alive)"
 check "빈 PATCH -> 400 (starred 주입 안 함)" 400 \
       "$(code -X PATCH "$BASE/api/customers/$CUSTID" -H 'Content-Type: application/json' -d '{}')"
-check "users 는 제네릭 라우트에 없음" 404 "$(code "$BASE/api/users")"
+# users 는 TABLES 에 없다. 전용 경로만 열려 있고 해시는 절대 나가면 안 된다.
+check "users 목록에 해시 미노출" "true" \
+      "$(body "$BASE/api/users" | jsonq "!/password_hash|salt/.test(s)")"
+check "users 제네릭 PUT 차단" 404 \
+      "$(code -X PUT "$BASE/api/users/1" -H 'Content-Type: application/json' -d '{"role":"admin"}')"
+check "users 제네릭 DELETE 차단" 404 "$(code -X DELETE "$BASE/api/users/1")"
 
 # ── P0-9: 회계·대시보드 정합성 ──────────────────────────────
 echo
@@ -195,6 +204,61 @@ code -X DELETE "$BASE/api/quotations/$OID2" >/dev/null
 
 check "대시보드 내부메모 미노출"  "true" \
       "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
+
+# ── Phase 1: 계정 ───────────────────────────────────────────
+echo
+echo "[Phase 1 계정]"
+STAFF="zz$$"
+check "계정 생성 -> 200"          200 "$(code -X POST "$BASE/api/users" -H 'Content-Type: application/json' \
+                                        -d "{\"username\":\"$STAFF\",\"password\":\"pw1234\",\"name\":\"스모크직원\",\"role\":\"staff\"}")"
+check "중복 아이디 -> 409"        409 "$(code -X POST "$BASE/api/users" -H 'Content-Type: application/json' \
+                                        -d "{\"username\":\"$STAFF\",\"password\":\"pw1234\"}")"
+check "잘못된 아이디 형식 -> 400" 400 "$(code -X POST "$BASE/api/users" -H 'Content-Type: application/json' \
+                                        -d '{"username":"a b","password":"pw1234"}')"
+check "짧은 비밀번호 -> 400"      400 "$(code -X POST "$BASE/api/users" -H 'Content-Type: application/json' \
+                                        -d '{"username":"zzshort","password":"1"}')"
+SCK="$(mktemp)"
+curl -s -c "$SCK" -o /dev/null -X POST "$BASE/api/login" -H 'Content-Type: application/json' \
+     -d "{\"username\":\"$STAFF\",\"password\":\"pw1234\"}"
+scode() { curl -s -b "$SCK" -o /dev/null -w '%{http_code}' "$@"; }
+check "staff 가 계정 생성 -> 403" 403 "$(scode -X POST "$BASE/api/users" -H 'Content-Type: application/json' \
+                                        -d '{"username":"zzhack","password":"pw1234"}')"
+check "staff 가 남의 비번 변경 -> 403" 403 "$(scode -X PATCH "$BASE/api/users/1/password" \
+                                        -H 'Content-Type: application/json' -d '{"password":"pw1234"}')"
+SID=$(body "$BASE/api/users" | jsonq "JSON.parse(s).find(u=>u.username==='$STAFF').id")
+check "staff 세션 유효"           200 "$(scode "$BASE/api/me")"
+check "비활성화 -> 200"           200 "$(code -X PATCH "$BASE/api/users/$SID/active" \
+                                        -H 'Content-Type: application/json' -d '{"active":false}')"
+check "★ 비활성화 즉시 기존 세션 무효" 401 "$(scode "$BASE/api/me")"
+check "비활성 계정 재로그인 -> 401" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
+                                        -H 'Content-Type: application/json' -d "{\"username\":\"$STAFF\",\"password\":\"pw1234\"}")"
+check "비활성 계정은 목록에서 제외" "true" \
+      "$(body "$BASE/api/users" | jsonq "JSON.parse(s).every(u=>u.username!=='$STAFF')")"
+check "자기 계정 비활성화 -> 400" 400 "$(code -X PATCH "$BASE/api/users/1/active" \
+                                        -H 'Content-Type: application/json' -d '{"active":false}')"
+rm -f "$SCK"
+
+echo
+echo "[Phase 1 이력에 행위자]"
+check "상태 변경에 이름 기록"     "true" \
+      "$(body "$BASE/api/quotations/$OID/history" | jsonq "JSON.parse(s).changes.some(c=>c.user_name && c.user_id)")"
+check "created_by 기록"           "true" \
+      "$(body "$BASE/api/quotations" | jsonq "!!JSON.parse(s).find(q=>q.id===$OID).created_by")"
+# 주문을 지우면 이력도 함께 사라져야 한다. quotations.id 는 AUTOINCREMENT 가 아니라
+# 재사용되므로, 남아 있으면 새 주문이 남의 이력을 물려받는다.
+STAMP3="ZZSMOKE3-$$"
+body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+     -d "{\"no\":\"$STAMP3\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\",\"order_status\":\"draft\",\"total\":0,\"total_paid\":0}" >/dev/null
+OID3=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP3').pop().id")
+code -X PATCH "$BASE/api/quotations/$OID3/status" -H 'Content-Type: application/json' -d '{"status":"ordered"}' >/dev/null
+check "  이력 1건 생성"           1 "$(body "$BASE/api/quotations/$OID3/history" | jsonq 'JSON.parse(s).changes.length')"
+code -X DELETE "$BASE/api/quotations/$OID3" >/dev/null
+body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+     -d "{\"no\":\"$STAMP3-b\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\",\"order_status\":\"draft\",\"total\":0,\"total_paid\":0}" >/dev/null
+OID4=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP3-b').pop().id")
+check "★ 삭제 후 재사용 id 가 이력을 물려받지 않음" 0 \
+      "$(body "$BASE/api/quotations/$OID4/history" | jsonq 'JSON.parse(s).changes.length')"
+code -X DELETE "$BASE/api/quotations/$OID4" >/dev/null
 
 # ── 정리 ────────────────────────────────────────────────────
 echo

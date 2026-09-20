@@ -2,11 +2,19 @@ services:
   coldstorage:
     build: .
     container_name: coldstorage
+    # 터널(cloudflared)만 접근하므로 LAN 에 노출할 이유가 없다
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     environment:
-      # 공용 로그인 비밀번호 — 변경 시 서버의 .env 에 APP_PASSWORD=새값 (커밋 금지)
-      APP_PASSWORD: ${APP_PASSWORD:-0000}
+      # 최초 관리자 계정 — users 테이블이 비어 있을 때만 쓰인다.
+      # 실제 값은 서버의 ~/coldstorage/.env 에 두고 절대 커밋하지 않는다(.env.example 참고).
+      ADMIN_USER:     ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME:     ${ADMIN_NAME:-관리자}
+      # 공용 비밀번호 시절 값 — 계정 생성 시 대체 소스로만 쓰인다
+      APP_PASSWORD:   ${APP_PASSWORD:-}
+      # HTTPS 터널 뒤이므로 쿠키에 Secure 를 붙인다
+      COOKIE_SECURE:  ${COOKIE_SECURE:-1}
     volumes:
       - coldstorage-data:/app/data
     networks:
