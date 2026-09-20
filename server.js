@@ -816,21 +816,16 @@ function autoReceiveStatus(purchaseId) {
   else if (anyReceived) db.prepare('UPDATE purchases SET purchase_status=? WHERE id=?').run('partial', purchaseId);
 }
 
-// ─── MIME / CORS ─────────────────────────────────────────────
+// ─── MIME ────────────────────────────────────────────────────
 const MIME = {
   '.html':'text/html; charset=utf-8', '.js':'application/javascript; charset=utf-8',
   '.css':'text/css; charset=utf-8',   '.json':'application/json; charset=utf-8',
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg',
   '.svg':'image/svg+xml', '.ico':'image/x-icon',
 };
-const CORS = {
-  'Access-Control-Allow-Origin':'*',
-  'Access-Control-Allow-Methods':'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers':'Content-Type',
-};
 
 const json = (res, status, data) => {
-  res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', ...CORS });
+  res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
 };
 const BODY_LIMIT = 1024 * 1024;   // 1MB
@@ -985,7 +980,7 @@ async function handle(req, res) {
   catch { return json(res, 400, { ok:false, error:'잘못된 경로입니다.' }); }
   const method   = req.method.toUpperCase();
 
-  if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
+  if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   // ── 로그인 / 로그아웃 ────────────────────────────────────────
   if (pathname === '/api/login' && method === 'POST') {
@@ -1751,7 +1746,7 @@ async function handle(req, res) {
     if (BLOB_KEYS.has(resource)) {
       if (method === 'GET') {
         const row = db.prepare('SELECT value FROM blobs WHERE key=?').get(resource);
-        res.writeHead(200, {'Content-Type':'application/json; charset=utf-8', ...CORS});
+        res.writeHead(200, {'Content-Type':'application/json; charset=utf-8'});
         res.end(row ? row.value : (resource === 'inventory' ? '[]' : '{}'));
         return;
       }
