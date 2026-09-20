@@ -7,11 +7,13 @@
 function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
     const pipeW = parseInt(document.getElementById('pipeW').value) || 50;
     const pipeH = parseInt(document.getElementById('pipeH').value) || 50;
-    const pipeGap = parseInt(document.getElementById('pipeGap').value) || 700;
+    const pipeGap = parseInt(document.getElementById('pipeGap').value) || 800;
+    const braceGap = parseInt(document.getElementById('braceGap').value) || 3000;
     const zoom = typeof canvasZoom !== 'undefined' ? canvasZoom : 1;
     const stockLen = 6000;
 
     document.getElementById('gapVal').innerText = pipeGap + 'mm';
+    document.getElementById('braceGapVal').innerText = braceGap + 'mm';
 
     ctx.setLineDash([5, 5]);
     ctx.strokeStyle = '#e2e8f0';
@@ -43,9 +45,9 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
         return labels[label] || label;
     }
 
-    function drawLabel(cx, cy, text, color = '#475569') {
+    function drawLabel(cx, cy, text, color = '#475569', rotate = 0) {
         if (typeof drawFixedLabel === 'function') {
-            drawFixedLabel(cx, cy, text, { color, bg: 'rgba(255,255,255,0.88)' });
+            drawFixedLabel(cx, cy, text, { color, bg: 'rgba(255,255,255,0.88)', rotate });
             return;
         }
         ctx.font = 'bold 9px sans-serif';
@@ -58,29 +60,59 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
         ctx.fillText(text, cx, cy);
     }
 
-    function drawPipe(rx, ry, rw, rh, labelTxt) {
+    function drawPipe(rx, ry, rw, rh) {
         if (rw <= 0 || rh <= 0) return;
         ctx.fillStyle = '#f1f5f9';
         ctx.fillRect(rx, ry, rw, rh);
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(rx, ry, rw, rh);
+    }
 
-        if (!labelTxt) return;
+    // 길이 라벨 위치: 교차·접합하는 직각 부재를 피해 가장 긴 빈 구간의 가운데 (mm 좌표)
+    function getPipeLabelCenter(member, members) {
+        const vertical = member.dir === 'v';
+        const a1 = vertical ? member.y : member.x;
+        const a2 = a1 + (vertical ? member.height : member.width);
+        const c1 = vertical ? member.x : member.y;
+        const c2 = c1 + (vertical ? member.width : member.height);
+        const cuts = members
+            .filter(other => other !== member && other.dir !== member.dir)
+            .map(other => {
+                const oc1 = vertical ? other.x : other.y;
+                const oc2 = oc1 + (vertical ? other.width : other.height);
+                if (oc2 < c1 - 1 || oc1 > c2 + 1) return null;
+                const oa1 = vertical ? other.y : other.x;
+                const oa2 = oa1 + (vertical ? other.height : other.width);
+                if (oa2 <= a1 || oa1 >= a2) return null;
+                return { start: oa1, end: oa2 };
+            })
+            .filter(Boolean);
+        const best = subtractCuts(a1, a2, cuts)
+            .reduce((acc, seg) => (!acc || seg.end - seg.start > acc.end - acc.start) ? seg : acc, null)
+            || { start: a1, end: a2 };
+        const mid = (best.start + best.end) / 2;
+        return vertical ? { x: (c1 + c2) / 2, y: mid } : { x: mid, y: (c1 + c2) / 2 };
+    }
+
+    // 길이 라벨: 부재 방향으로 회전해서 표시 (부재가 글자보다 길 때만)
+    function drawPipeLabel(member, members) {
+        const labelTxt = Math.round(memberLength(member)) + 'mm';
         ctx.font = 'bold 9px sans-serif';
         const tw = ctx.measureText(labelTxt).width;
-        if (rw * zoom > tw + 6 && rh * zoom > 10) {
-            drawLabel(rx + rw / 2, ry + rh / 2, labelTxt);
-        }
+        if (memberLength(member) * scale * zoom <= tw + 6) return;
+        const center = getPipeLabelCenter(member, members);
+        drawLabel(ox + center.x * scale, oy + center.y * scale, labelTxt, '#475569', member.dir === 'v' ? -Math.PI / 2 : 0);
     }
 
     function clampColumns() {
+        const margin = 25;
         return (typeof columns !== 'undefined' ? columns : [])
             .map(col => ({
-                x1: Math.max(0, Math.min(w, col.x)),
-                x2: Math.max(0, Math.min(w, col.x + col.width)),
-                y1: Math.max(0, Math.min(l, col.y)),
-                y2: Math.max(0, Math.min(l, col.y + col.depth))
+                x1: Math.max(0, Math.min(w, col.x - margin)),
+                x2: Math.max(0, Math.min(w, col.x + col.width + margin)),
+                y1: Math.max(0, Math.min(l, col.y - margin)),
+                y2: Math.max(0, Math.min(l, col.y + col.depth + margin))
             }))
             .filter(col => col.x2 > col.x1 && col.y2 > col.y1);
     }
@@ -133,25 +165,38 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
 
     function createBaseMembers(activeColumns) {
         const members = [];
-        const innerW = Math.max(0, w - pipeW);
-        const innerH = Math.max(0, l - pipeH);
-        const boxX = pipeW / 2;
-        const boxY = pipeH / 2;
+        const innerW = Math.max(0, w - 50);
+        const innerH = Math.max(0, l - 50);
+        const boxX = 25;
+        const boxY = 25;
+        const rev = typeof floorReversed !== 'undefined' ? floorReversed : false;
 
         if (innerW <= 0 || innerH <= 0) return members;
 
         if (floorDir === 'h') {
             const xAnchors = getColumnAnchors(activeColumns, 'x', boxX, pipeW, Math.max(0, innerW - pipeW));
             const xPositions = getEvenPositions(innerW, pipeW, pipeGap, xAnchors);
-            xPositions.forEach(x => {
-                members.push(createMember('Vertical Main', boxX + x, boxY, pipeW, innerH, 'v'));
+            // Border: rev=true면 full height, false면 가로재 사이
+            // Main: 항상 가로재 사이 (반전과 무관)
+            const borderY = rev ? boxY : boxY + pipeH;
+            const borderH = rev ? innerH : innerH - 2 * pipeH;
+            xPositions.forEach((x, i) => {
+                const isEdge = i === 0 || i === xPositions.length - 1;
+                if (isEdge) {
+                    members.push(createMember('Vertical Border', boxX + x, borderY, pipeW, borderH, 'v'));
+                } else {
+                    members.push(createMember('Vertical Main', boxX + x, boxY + pipeH, pipeW, innerH - 2 * pipeH, 'v'));
+                }
             });
 
-            members.push(createMember('Horizontal Border', boxX, boxY, innerW, pipeH, 'h'));
-            members.push(createMember('Horizontal Border', boxX, boxY + innerH - pipeH, innerW, pipeH, 'h'));
+            // rev=false: 가로재 full width / rev=true: 가로재가 세로재 사이에 들어감
+            const hX = rev ? boxX + pipeW : boxX;
+            const hW = rev ? innerW - 2 * pipeW : innerW;
+            members.push(createMember('Horizontal Border', hX, boxY, hW, pipeH, 'h'));
+            members.push(createMember('Horizontal Border', hX, boxY + innerH - pipeH, hW, pipeH, 'h'));
 
-            if (innerH >= 2000) {
-                const braceY = boxY + Math.max(0, (innerH - pipeH) / 2);
+            getEvenPositions(innerH, pipeH, braceGap).slice(1, -1).forEach(byOffset => {
+                const braceY = boxY + byOffset;
                 for (let i = 0; i < xPositions.length - 1; i++) {
                     const xStart = xPositions[i] + pipeW;
                     const xEnd = xPositions[i + 1];
@@ -160,19 +205,31 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
                         members.push(createMember('Horizontal Brace', boxX + xStart, braceY, braceLen, pipeH, 'h'));
                     }
                 }
-            }
+            });
         } else {
             const yAnchors = getColumnAnchors(activeColumns, 'y', boxY, pipeH, Math.max(0, innerH - pipeH));
             const yPositions = getEvenPositions(innerH, pipeH, pipeGap, yAnchors);
-            yPositions.forEach(y => {
-                members.push(createMember('Horizontal Main', boxX, boxY + y, innerW, pipeH, 'h'));
+            // Border: rev=true면 full width, false면 세로재 사이
+            // Main: 항상 세로재 사이 (반전과 무관)
+            const borderX = rev ? boxX : boxX + pipeW;
+            const borderW = rev ? innerW : innerW - 2 * pipeW;
+            yPositions.forEach((y, i) => {
+                const isEdge = i === 0 || i === yPositions.length - 1;
+                if (isEdge) {
+                    members.push(createMember('Horizontal Border', borderX, boxY + y, borderW, pipeH, 'h'));
+                } else {
+                    members.push(createMember('Horizontal Main', boxX + pipeW, boxY + y, innerW - 2 * pipeW, pipeH, 'h'));
+                }
             });
 
-            members.push(createMember('Vertical Border', boxX, boxY, pipeW, innerH, 'v'));
-            members.push(createMember('Vertical Border', boxX + innerW - pipeW, boxY, pipeW, innerH, 'v'));
+            // rev=false: 세로재 full height / rev=true: 세로재가 가로재 사이에 들어감
+            const vY = rev ? boxY + pipeH : boxY;
+            const vH = rev ? innerH - 2 * pipeH : innerH;
+            members.push(createMember('Vertical Border', boxX, vY, pipeW, vH, 'v'));
+            members.push(createMember('Vertical Border', boxX + innerW - pipeW, vY, pipeW, vH, 'v'));
 
-            if (innerW >= 2000) {
-                const braceX = boxX + Math.max(0, (innerW - pipeW) / 2);
+            getEvenPositions(innerW, pipeW, braceGap).slice(1, -1).forEach(bxOffset => {
+                const braceX = boxX + bxOffset;
                 for (let i = 0; i < yPositions.length - 1; i++) {
                     const yStart = yPositions[i] + pipeH;
                     const yEnd = yPositions[i + 1];
@@ -181,7 +238,7 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
                         members.push(createMember('Vertical Brace', braceX, boxY + yStart, pipeW, braceLen, 'v'));
                     }
                 }
-            }
+            });
         }
 
         return members;
@@ -261,12 +318,12 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
                 if (width < minConnector) return;
 
                 const bottomY = col.y2;
-                if (bottomY >= pipeH / 2 && bottomY + pipeH <= l - pipeH / 2) {
+                if (bottomY >= 25 && bottomY + pipeH <= l - 25) {
                     pushConnector(createMember('Column Connector', x, bottomY, width, pipeH, 'h'));
                 }
 
                 const topY = col.y1 - pipeH;
-                if (topY >= pipeH / 2 && topY + pipeH <= l - pipeH / 2) {
+                if (topY >= 25 && topY + pipeH <= l - 25) {
                     pushConnector(createMember('Column Connector', x, topY, width, pipeH, 'h'));
                 }
             } else {
@@ -275,12 +332,12 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
                 if (height < minConnector) return;
 
                 const leftX = col.x1 - pipeW;
-                if (leftX >= pipeW / 2 && leftX + pipeW <= w - pipeW / 2) {
+                if (leftX >= 25 && leftX + pipeW <= w - 25) {
                     pushConnector(createMember('Column Connector', leftX, y, pipeW, height, 'v'));
                 }
 
                 const rightX = col.x2;
-                if (rightX >= pipeW / 2 && rightX + pipeW <= w - pipeW / 2) {
+                if (rightX >= 25 && rightX + pipeW <= w - 25) {
                     pushConnector(createMember('Column Connector', rightX, y, pipeW, height, 'v'));
                 }
             }
@@ -377,29 +434,54 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
     function optimizeStock(parts) {
         const stocks = [];
         const sorted = parts
-            .map(part => Math.round(part.length))
-            .filter(len => len > 0)
-            .sort((a, b) => b - a);
+            .map(part => ({ len: Math.round(part.length), label: part.label || '' }))
+            .filter(p => p.len > 0)
+            .sort((a, b) => b.len - a.len);
 
-        sorted.forEach(len => {
+        sorted.forEach(p => {
             let best = null;
             for (let i = 0; i < stocks.length; i++) {
-                if (stocks[i].remaining >= len && (!best || stocks[i].remaining < stocks[best].remaining)) {
+                if (stocks[i].remaining >= p.len && (!best || stocks[i].remaining < stocks[best].remaining)) {
                     best = i;
                 }
             }
-            if (best === null) stocks.push({ remaining: stockLen - len, parts: [len] });
+            if (best === null) stocks.push({ remaining: stockLen - p.len, parts: [p] });
             else {
-                stocks[best].remaining -= len;
-                stocks[best].parts.push(len);
+                stocks[best].remaining -= p.len;
+                stocks[best].parts.push(p);
             }
         });
 
         return {
             stockCount: stocks.length,
             waste: stocks.reduce((sum, stock) => sum + stock.remaining, 0),
-            cutCount: stocks.reduce((sum, stock) => sum + stock.parts.length, 0)
+            cutCount: stocks.reduce((sum, stock) => sum + stock.parts.length, 0),
+            stocks
         };
+    }
+
+    function splitLongMembers(members) {
+        const result = [];
+        members.forEach(member => {
+            const len = memberLength(member);
+            if (len <= stockLen) {
+                result.push(member);
+                return;
+            }
+            const splitCount = Math.ceil(len / stockLen);
+            const pieceLen = len / splitCount;
+
+            if (member.dir === 'h') {
+                for (let i = 0; i < splitCount; i++) {
+                    result.push(createMember(member.label, member.x + i * pieceLen, member.y, pieceLen, member.height, 'h'));
+                }
+            } else {
+                for (let i = 0; i < splitCount; i++) {
+                    result.push(createMember(member.label, member.x, member.y + i * pieceLen, member.width, pieceLen, 'v'));
+                }
+            }
+        });
+        return result;
     }
 
     function drawColumns() {
@@ -433,17 +515,17 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
 
     function drawDimensions() {
         const dimOffset = 44;
-        const x1 = ox + pipeW / 2 * scale;
-        const x2 = ox + (w - pipeW / 2) * scale;
-        const y1 = oy + pipeH / 2 * scale;
-        const y2 = oy + (l - pipeH / 2) * scale;
+        const x1 = ox + 25 * scale;
+        const x2 = ox + (w - 25) * scale;
+        const y1 = oy + 25 * scale;
+        const y2 = oy + (l - 25) * scale;
         const vx1 = typeof toViewportX === 'function' ? toViewportX(x1) : x1;
         const vx2 = typeof toViewportX === 'function' ? toViewportX(x2) : x2;
         const vy1 = typeof toViewportY === 'function' ? toViewportY(y1) : y1;
         const vy2 = typeof toViewportY === 'function' ? toViewportY(y2) : y2;
 
         ctx.save();
-        if (typeof toViewportX === 'function') ctx.setTransform(1, 0, 0, 1, 0, 0);
+        if (typeof toViewportX === 'function') resetViewportTransform();
         ctx.strokeStyle = '#64748b';
         ctx.lineWidth = 1;
 
@@ -455,7 +537,7 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
         ctx.font = 'bold 11px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText('W = ' + Math.round(w - pipeW).toLocaleString() + ' mm', (vx1 + vx2) / 2, dimY + 3);
+        ctx.fillText('W = ' + Math.round(w - 50).toLocaleString() + ' mm', (vx1 + vx2) / 2, dimY + 3);
 
         const dimX = vx2 + dimOffset;
         ctx.beginPath(); ctx.moveTo(vx2 + 4, vy1); ctx.lineTo(dimX + 2, vy1); ctx.stroke();
@@ -465,7 +547,7 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
         ctx.rotate(-Math.PI / 2);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText('L = ' + Math.round(l - pipeH).toLocaleString() + ' mm', 0, 0);
+        ctx.fillText('L = ' + Math.round(l - 50).toLocaleString() + ' mm', 0, 0);
         ctx.restore();
     }
 
@@ -473,9 +555,10 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
     const baseMembers = createBaseMembers(activeColumns);
     const splitMembers = baseMembers.flatMap(member => splitMemberByColumns(member, activeColumns));
     const connectedMembers = addColumnConnectors(splitMembers, activeColumns);
-    const finalMembers = mergeMembers(
+    const mergedMembers = mergeMembers(
         connectedMembers.flatMap(member => splitMemberByColumns(member, activeColumns))
     );
+    const finalMembers = splitLongMembers(mergedMembers);
     const bomRows = [];
     let totalL = 0;
 
@@ -487,25 +570,23 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
         const len = memberLength(member);
         totalL += len;
         addBom(bomRows, member.label, len, 1);
-        drawPipe(rx, ry, rw, rh, Math.round(len) + 'mm');
+        drawPipe(rx, ry, rw, rh);
     });
+    // 라벨은 모든 파이프를 그린 뒤에 (다음 파이프가 라벨을 덮지 않도록)
+    finalMembers.forEach(member => drawPipeLabel(member, finalMembers));
 
     drawColumns();
     drawDimensions();
 
-    const stockPlan = optimizeStock(finalMembers.map(member => ({ length: memberLength(member) })));
+    const stockPlan = optimizeStock(finalMembers.map(member => ({ length: memberLength(member), label: member.label })));
     const bomTbody = document.getElementById('base-bom-tbody');
     const bomTotal = document.getElementById('base-bom-total');
-    if (bomTbody && bomTotal) {
+    const bomStockCount = document.getElementById('base-bom-stock-count');
+    if (bomTbody) {
         const totalPartCount = bomRows.reduce((sum, row) => sum + row.count, 0);
-        bomTotal.innerText = totalPartCount + ' pcs';
-        const stockRows = [
-            { label: '6m Stock', unitLen: stockLen, count: stockPlan.stockCount },
-            { label: 'Estimated Cuts', unitLen: 0, count: stockPlan.cutCount },
-            { label: 'Estimated Waste', unitLen: stockPlan.waste, count: 1 }
-        ];
+        if (bomTotal) bomTotal.innerText = totalPartCount + '개';
+        if (bomStockCount) bomStockCount.innerText = stockPlan.stockCount + '개';
         bomTbody.innerHTML = bomRows
-            .concat(stockRows)
             .sort((a, b) => a.label.localeCompare(b.label) || a.unitLen - b.unitLen)
             .map((row, i) =>
                 `<tr style="background:${i % 2 === 0 ? '#f8fafc' : '#ffffff'}">
@@ -521,4 +602,76 @@ function renderBaseMode(w, l, ox, oy, scale, dw, dl) {
     const mainStat = document.getElementById('mainStat');
     if (mainCount) mainCount.innerText = (totalL / 1000).toFixed(1) + ' m';
     if (mainStat) mainStat.innerText = stockPlan.stockCount + ' pcs (6m)';
+
+    renderPipeCutDiagrams(stockPlan);
+}
+
+function renderPipeCutDiagrams(stockPlan) {
+    const container = document.getElementById('base-cut-diagrams-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const STOCK_LEN = 6000;
+    const MAX_W = 220;
+    const BAR_H = 36;
+
+    const TYPE_COLORS = {
+        'Horizontal Border': { fill: '#dbeafe', stroke: '#3b82f6', text: '#1d4ed8' },
+        'Vertical Border':   { fill: '#dbeafe', stroke: '#3b82f6', text: '#1d4ed8' },
+        'Horizontal Main':   { fill: '#dcfce7', stroke: '#22c55e', text: '#15803d' },
+        'Vertical Main':     { fill: '#dcfce7', stroke: '#22c55e', text: '#15803d' },
+        'Horizontal Brace':  { fill: '#fef3c7', stroke: '#f59e0b', text: '#92400e' },
+        'Vertical Brace':    { fill: '#fef3c7', stroke: '#f59e0b', text: '#92400e' },
+    };
+    const DEFAULT_COLOR = { fill: '#e0f2fe', stroke: '#0ea5e9', text: '#0369a1' };
+
+    // 동일한 파이프 조합의 원장 묶기
+    const groups = [];
+    stockPlan.stocks.forEach(stock => {
+        const key = stock.parts.map(p => p.len).sort((a, b) => b - a).join('|');
+        const existing = groups.find(g => g.key === key);
+        if (existing) existing.count++;
+        else groups.push({ key, count: 1, parts: stock.parts, remaining: stock.remaining });
+    });
+
+    function makeBarSVG(parts, remaining) {
+        const sc = MAX_W / STOCK_LEN;
+        let html = `<rect width="${MAX_W}" height="${BAR_H}" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5" rx="3"/>`;
+        let cursor = 0;
+        parts.forEach((p, i) => {
+            const pw = Math.round(p.len * sc);
+            const px = Math.round(cursor * sc);
+            const color = TYPE_COLORS[p.label] || DEFAULT_COLOR;
+            html += `<rect x="${px + 1}" y="1" width="${Math.max(pw - 2, 1)}" height="${BAR_H - 2}" fill="${color.fill}" stroke="${color.stroke}" stroke-width="1" rx="2"/>`;
+            if (pw > 30) {
+                html += `<text x="${px + pw / 2}" y="${BAR_H / 2 + 1}" text-anchor="middle" dominant-baseline="middle" font-size="7.5" font-weight="bold" fill="${color.text}">${p.len}mm</text>`;
+            }
+            cursor += p.len;
+            if (i < parts.length - 1) {
+                const cx = Math.round(cursor * sc);
+                html += `<line x1="${cx}" y1="0" x2="${cx}" y2="${BAR_H}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+            }
+        });
+        if (remaining > 0) {
+            const cx = Math.round((STOCK_LEN - remaining) * sc);
+            const ww = Math.round(remaining * sc);
+            html += `<line x1="${cx}" y1="0" x2="${cx}" y2="${BAR_H}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+            if (ww > 22) {
+                html += `<text x="${cx + ww / 2}" y="${BAR_H / 2 + 1}" text-anchor="middle" dominant-baseline="middle" font-size="7" fill="#94a3b8">잔재 ${remaining}mm</text>`;
+            }
+        }
+        html += `<text x="${MAX_W / 2}" y="${BAR_H + 11}" text-anchor="middle" font-size="9" fill="#94a3b8">원장 ${STOCK_LEN}mm</text>`;
+        return `<svg width="${MAX_W}" height="${BAR_H + 14}" xmlns="http://www.w3.org/2000/svg">${html}</svg>`;
+    }
+
+    groups.forEach(g => {
+        const partsDesc = g.parts.map(p => p.len + 'mm').join(' + ');
+        const card = document.createElement('div');
+        card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 14px';
+        card.innerHTML =
+            `<p style="font-size:12px;font-weight:900;color:#3b82f6;margin:0">${g.count}개</p>` +
+            makeBarSVG(g.parts, g.remaining) +
+            `<p style="font-size:10px;color:#64748b;margin:0;text-align:center">${partsDesc}${g.remaining > 0 ? ' (잔재 ' + g.remaining + 'mm)' : ''}</p>`;
+        container.appendChild(card);
+    });
 }

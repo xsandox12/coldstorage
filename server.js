@@ -254,6 +254,14 @@ db.exec(`
   DELETE FROM quotation_sources WHERE order_id NOT IN (SELECT id FROM quotations);
 `);
 
+// 숫자로 들어와 "…​.0" 으로 저장돼 버린 도면 id 를 정상화한다 (drawingId 참고).
+// 이미 정상 id 가 따로 있으면 PK 가 충돌하므로 건드리지 않는다. 멱등.
+db.exec(`
+  UPDATE drawings SET id = rtrim(rtrim(id, '0'), '.')
+   WHERE id LIKE '%.0'
+     AND rtrim(rtrim(id, '0'), '.') NOT IN (SELECT id FROM drawings);
+`);
+
 /* 일회성 데이터 마이그레이션. ALTER 는 재적용해도 안전하지만 값 채우기는 아니다
  * — 두 번 돌면 사용자가 바꿔 둔 과세구분을 덮어쓴다. user_version 으로 한 번만. */
 const SCHEMA_VERSION = 1;
@@ -329,6 +337,11 @@ const TABLES = {
 };
 
 // ─── 직렬화 / 역직렬화 ──────────────────────────────────────
+// 도면 id 는 TEXT PK 인데 도면 앱은 Date.now() 를 숫자로 보낸다. SQLite 가 REAL 을
+// 거쳐 "1789911856476.0" 으로 저장해 버리면 "1789911856476" 으로 조회하는
+// 삭제·즐겨찾기가 영영 맞지 않는다. 저장과 조회 양쪽을 같은 규칙으로 맞춘다.
+const drawingId = v => String(v).replace(/\.0+$/, '');
+
 function rowOut(table, row) {
   if (!row) return null;
   if (table === 'quotations') return { ...row, drawing: !!row.drawing, accounting: !!row.accounting, printed: !!row.printed };
@@ -343,7 +356,10 @@ function rowIn(table, item) {
   if (table === 'quotations') return { ...item, drawing: item.drawing?1:0, accounting: item.accounting?1:0, printed: item.printed?1:0 };
   if (table === 'drawings') {
     const { id, starred, ...rest } = item;
-    return { id, starred: starred?1:0, data: JSON.stringify(rest) };
+    // drawings.id 는 TEXT 인데 도면 앱이 Date.now() 숫자를 보낸다. 그대로 넣으면
+    // SQLite 가 REAL→TEXT 로 바꿔 "1789911856476.0" 이 되고, 삭제·즐겨찾기는
+    // "1789911856476" 으로 조회해 영영 맞지 않는다. 문자열로 확정한다.
+    return { id: drawingId(id), starred: starred?1:0, data: JSON.stringify(rest) };
   }
   return item;
 }
@@ -1310,6 +1326,18 @@ async function handle(req, res) {
       ...db.prepare(`SELECT total,supply_amount,vat_amount,exempt_amount,vat_mode,vat_rate FROM ${cfg.parent} WHERE id=?`).get(id) });
   }
 
+  // ── PATCH /api/quotations/:id/drawing — 연결된 도면 기록 ─────
+  // drawing_id 컬럼은 예전부터 있었지만 채우는 경로가 없어 실측 0건이었다.
+  const mQDraw = pathname.match(/^\/api\/quotations\/(\d+)\/drawing$/);
+  if (mQDraw && method === 'PATCH') {
+    const id   = parseInt(mQDraw[1]);
+    const body = await parseBody(req);
+    const drawingId = String(body?.drawing_id ?? '').trim().slice(0, 64);
+    const r = db.prepare('UPDATE quotations SET drawing_id=? WHERE id=?').run(drawingId, id);
+    if (!r.changes) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    return json(res, 200, { ok:true, drawing_id: drawingId });
+  }
+
   // ── PATCH /api/quotations/:id/memo ───────────────────────────
   const mQMemo = pathname.match(/^\/api\/quotations\/(\d+)\/memo$/);
   if (mQMemo && method === 'PATCH') {
@@ -1589,7 +1617,9 @@ async function handle(req, res) {
     if (!cfg) return json(res, 404, { ok:false, error:'알 수 없는 리소스' });
 
     const rawId = mItem[2];
-    const id    = cfg.int && /^\d+$/.test(rawId) ? parseInt(rawId, 10) : rawId;
+    const id    = cfg.int && /^\d+$/.test(rawId) ? parseInt(rawId, 10)
+                : cfg.table === 'drawings' ? drawingId(rawId)
+                : rawId;
 
     if (method === 'GET') {
       const item = getOne(cfg, id);

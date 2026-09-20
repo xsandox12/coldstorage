@@ -11,8 +11,9 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
     const sheetW = parseInt(document.getElementById('sheetW').value) || 1219;
     const sheetL = parseInt(document.getElementById('sheetL').value) || 2438;
     const activeColumns = getCheckplateBlockers(w, l, t, edgeGap, iw, il);
-    const doorWall = (typeof doors !== 'undefined' && doors.length > 0)
-        ? doors[0].wallIndex : 0;
+    // 칸막이 도어는 벽 번호가 없으므로 첫 외벽 도어 기준
+    const firstWallDoor = (typeof doors !== 'undefined') ? doors.find(d => !d.partitionId) : null;
+    const doorWall = firstWallDoor ? firstWallDoor.wallIndex : 0;
     // wallIndex: 0=하단, 1=우측, 2=상단, 3=좌측
     const flip_x = (doorWall === 1);  // 도어 우측 → 쪽판 좌측
     const flip_y = (doorWall === 0);  // 도어 하단 → 쪽판 상단(y=0)
@@ -67,14 +68,25 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
             ? Math.ceil(sourceCounts.cut_w / Math.max(1, Math.floor(sw / rem_w))) : 0;
         const adjustedCutLSheets = (rem_l > 0 && sourceCounts.cut_l > 0)
             ? Math.ceil(sourceCounts.cut_l / Math.max(1, Math.floor(sl / rem_l))) : 0;
-        const adjustedCornerSheets = sourceCounts.cut_corner > 0 && adjustedCutWSheets === 0 && adjustedCutLSheets === 0
-            ? 1 : 0;
+        // 원장 1장당 쪽판 수, 마지막 원장에 남은 공간이 코너 쪽판 이상일 때만 코너를 함께 절단
+        const kW = rem_w > 0 ? Math.max(1, Math.floor(sw / rem_w)) : 0;
+        const kL = rem_l > 0 ? Math.max(1, Math.floor(sl / rem_l)) : 0;
+        const lastCutW = adjustedCutWSheets > 0 ? sourceCounts.cut_w - (adjustedCutWSheets - 1) * kW : 0;
+        const lastCutL = adjustedCutLSheets > 0 ? sourceCounts.cut_l - (adjustedCutLSheets - 1) * kL : 0;
+        const cornerFitsInCutL = adjustedCutLSheets > 0 && sl - lastCutL * rem_l >= rem_l;
+        const cornerFitsInCutW = adjustedCutWSheets > 0 && sw - lastCutW * rem_w >= rem_w;
+        const hasCornerPiece = sourceCounts.cut_corner > 0;
+        const cornerFromCutL = hasCornerPiece && cornerFitsInCutL;
+        const cornerFromCutW = hasCornerPiece && !cornerFitsInCutL && cornerFitsInCutW;
+        const adjustedCornerSheets = hasCornerPiece && !cornerFromCutL && !cornerFromCutW ? 1 : 0;
         const adjustedTotalSheets = adjustedFullSheets + adjustedCutWSheets + adjustedCutLSheets + adjustedCornerSheets;
         const bom = buildBomFromPieces(pieces, adjustedTotalSheets);
 
         return { cols_full, rows_full, rem_w, rem_l,
                  full_sheets: adjustedFullSheets, cut_w_sheets: adjustedCutWSheets,
                  cut_l_sheets: adjustedCutLSheets, corner_sheets: adjustedCornerSheets,
+                 cut_w_count: sourceCounts.cut_w, cut_l_count: sourceCounts.cut_l,
+                 kW, kL, cornerFromCutW, cornerFromCutL,
                  total_sheets: adjustedTotalSheets, pieces, bom,
                  sw, sl };
     }
@@ -94,7 +106,7 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
 
     function buildBomFromPieces(pieces, sheetCount) {
         const names = {
-            full: '온장',
+            full: '원장',
             cut_w: '세로 쪽판',
             cut_l: '가로 쪽판',
             cut_corner: '코너 쪽판'
@@ -121,19 +133,42 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
     }
 
     function getCheckplateBlockers(roomW, roomL, thickness, gap, innerW, innerL) {
-        if (typeof columns === 'undefined') return [];
-        return columns
-            .map(col => {
+        const blockers = [];
+
+        if (typeof columns !== 'undefined') {
+            columns.forEach(col => {
                 const rect = getExpandedColumnRect(col, roomW, roomL, thickness, gap);
-                return {
+                const b = {
                     type: 'column-expanded',
                     x1: Math.max(0, Math.min(innerW, rect.x1 - thickness - gap)),
                     x2: Math.max(0, Math.min(innerW, rect.x2 - thickness - gap)),
                     y1: Math.max(0, Math.min(innerL, rect.y1 - thickness - gap)),
                     y2: Math.max(0, Math.min(innerL, rect.y2 - thickness - gap))
                 };
-            })
-            .filter(col => col.x2 - col.x1 > 0.5 && col.y2 - col.y1 > 0.5);
+                if (b.x2 - b.x1 > 0.5 && b.y2 - b.y1 > 0.5) blockers.push(b);
+            });
+        }
+
+        if (typeof partitions !== 'undefined') {
+            partitions.forEach(p => {
+                const pDir = p.dir || 'v';
+                const pThickness = p.thickness || thickness;
+                let b;
+                if (pDir === 'v') {
+                    // 체크판 내 x = partition.pos - gap, 양쪽 5mm 여유
+                    const x1 = Math.max(0, Math.min(innerW, p.pos - 2 * gap));
+                    const x2 = Math.max(0, Math.min(innerW, p.pos + pThickness));
+                    b = { type: 'partition', x1, x2, y1: 0, y2: innerL };
+                } else {
+                    const y1 = Math.max(0, Math.min(innerL, p.pos - 2 * gap));
+                    const y2 = Math.max(0, Math.min(innerL, p.pos + pThickness));
+                    b = { type: 'partition', x1: 0, x2: innerW, y1, y2 };
+                }
+                if (b.x2 - b.x1 > 0.5 && b.y2 - b.y1 > 0.5) blockers.push(b);
+            });
+        }
+
+        return blockers;
     }
 
     function getExpandedColumnRect(col, roomW, roomL, thickness, gap = 0) {
@@ -385,7 +420,7 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
     const dimOffset = 44;
     ctx.save();
     if (typeof toViewportX === 'function' && typeof toViewportY === 'function') {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        resetViewportTransform();
     }
     const vx1 = typeof toViewportX === 'function' ? toViewportX(ix) : ix;
     const vx2 = typeof toViewportX === 'function' ? toViewportX(ix + iw * scale) : ix + iw * scale;
@@ -425,7 +460,7 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
     const legendX = ox - 88;   // 도면 좌측 가장자리 기준 왼쪽으로 배치
     const legendY = oy + 8;
     const legendItems = [
-        { type: 'full',       label: '온장' },
+        { type: 'full',       label: '원장' },
         { type: 'cut_w',      label: '세로 쪽판' },
         { type: 'cut_l',      label: '가로 쪽판' },
         { type: 'cut_corner', label: '코너 쪽판' },
@@ -469,206 +504,167 @@ function renderCheckPlateMode(w, l, t, ox, oy, scale, dw, dl, dt) {
 }
 
 // ----------------------------------------------------------------
-// renderCutDiagrams(layout) — 절단 쪽판 SVG 도면 카드 렌더링
-// 표시 방식: 장수(파란 글씨) → SVG → 종류+규격 라벨
+// renderCutDiagrams(layout) — 원장 기준 절단 계획 SVG 카드
+// 원장 전체를 보여주고 실제 사용 조각 + 절단선을 표시
 // ----------------------------------------------------------------
 function renderCutDiagrams(layout) {
     const container = document.getElementById('cut-diagrams-container');
     if (!container) return;
     container.innerHTML = '';
 
-    const { sw, sl, rem_w, rem_l, rows_full, cols_full,
-            full_sheets, cut_w_sheets, cut_l_sheets, corner_sheets } = layout;
+    const { sw, sl, rem_w, rem_l, full_sheets, cut_w_sheets, cut_l_sheets, corner_sheets,
+            cut_w_count, cut_l_count, kW, kL, cornerFromCutW, cornerFromCutL } = layout;
+    const hasCorner = rem_w > 0 && rem_l > 0;
 
-    const MAX_W = 130, MAX_H = 190;
+    const MAX_W = 120, MAX_H = 180;
+    const WASTE_FILL = '#e2e8f0';
+    const WASTE_STROKE = '#cbd5e1';
 
-    function getPieceCutKey(piece) {
-        return (piece.cuts || [])
-            .map(cut => `${Math.round(cut.x - piece.x)},${Math.round(cut.y - piece.y)},${Math.round(cut.w)},${Math.round(cut.h)}`)
-            .sort()
-            .join('|');
-    }
+    // 원장 전체를 배경으로, 사용 조각은 색상으로, 잔재는 회색, 절단선은 빨간 점선
+    function makeSheetSVG(pieces, cutLines) {
+        const sc = Math.min(MAX_W / sw, MAX_H / sl);
+        const W = Math.round(sw * sc), H = Math.round(sl * sc);
 
-    // ── SVG 헬퍼: 원장(sw×sl) 배경 + 색깔 조각 + 절단선 ──
-    // cutLines: { dir:'v'|'h', pos, from?, to? }
-    //   from/to: 절단선의 시작·끝 좌표(mm). 미지정 시 전체 길이.
-    //   방향 'v' → from/to는 y축(위→아래), 'h' → from/to는 x축(좌→우)
-    function makeSVG(sheetW, sheetH, pieces, cutLines) {
-        const sc = Math.min(MAX_W / sheetW, MAX_H / sheetH);
-        const W = Math.round(sheetW * sc), H = Math.round(sheetH * sc);
-        const rects = pieces.map(p =>
-            `<rect x="${Math.round(p.x*sc)}" y="${Math.round(p.y*sc)}" width="${Math.round(p.w*sc)}" height="${Math.round(p.h*sc)}" fill="${p.fill}" stroke="${p.stroke}" stroke-width="1"/>`
-        ).join('');
-        const lines = (cutLines||[]).map(cl => {
+        // 잔재 배경 (전체 회색)
+        let html = `<rect width="${W}" height="${H}" fill="${WASTE_FILL}" stroke="#94a3b8" stroke-width="1.5"/>`;
+
+        // 사용 조각
+        pieces.forEach(p => {
+            const px = Math.round(p.x * sc), py = Math.round(p.y * sc);
+            const pw = Math.round(p.w * sc), ph = Math.round(p.h * sc);
+            html += `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="${p.fill}" stroke="${p.stroke}" stroke-width="1"/>`;
+            // 규격 텍스트
+            if (pw > 32 && ph > 18) {
+                const dim = `${Math.round(p.w)}×${Math.round(p.h)}`;
+                html += `<text x="${px + pw / 2}" y="${py + ph / 2}" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="bold" fill="${p.textColor || '#475569'}">${dim}</text>`;
+            }
+        });
+
+        // 절단선 (빨간 점선)
+        cutLines.forEach(cl => {
             if (cl.dir === 'v') {
-                const x  = Math.round(cl.pos  * sc);
+                const x  = Math.round(cl.pos * sc);
                 const y1 = cl.from !== undefined ? Math.round(cl.from * sc) : 0;
                 const y2 = cl.to   !== undefined ? Math.round(cl.to   * sc) : H;
-                return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+                html += `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3"/>`;
             } else {
-                const y  = Math.round(cl.pos  * sc);
+                const y  = Math.round(cl.pos * sc);
                 const x1 = cl.from !== undefined ? Math.round(cl.from * sc) : 0;
                 const x2 = cl.to   !== undefined ? Math.round(cl.to   * sc) : W;
-                return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+                html += `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3"/>`;
             }
-        }).join('');
-        return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>${rects}${lines}</svg>`;
-    }
-
-    // ── 카드 헬퍼: 장수(위, 파란) + SVG + 라벨(아래) ──
-    // labels = [{ name:'가로 쪽판', dim:'1000×1800' }, ...]
-    function makeCard(sheetCount, svgHtml, labels) {
-        const cntTxt = `${sheetCount}장`;   // "N장" (동일 제거)
-        const labelsHtml = labels.map(l =>
-            `<p style="font-size:11px;font-weight:900;color:#1e293b;margin:0">${l.name} 1장</p>` +
-            `<p style="font-size:10px;color:#64748b;margin:0 0 2px">${l.dim}mm</p>`
-        ).join('');
-        return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 12px">` +
-            `<p style="font-size:12px;font-weight:900;color:#3b82f6;margin:0">${cntTxt}</p>` +
-            svgHtml +
-            `<div style="text-align:center;line-height:1.6">${labelsHtml}</div>` +
-            `</div>`;
-    }
-
-    function renderActualPieceCards() {
-        const colors = {
-            full:       { fill: '#f8fafc', stroke: '#64748b', name: '온장' },
-            cut_w:      { fill: '#dbeafe', stroke: '#3b82f6', name: '세로 쪽판' },
-            cut_l:      { fill: '#dcfce7', stroke: '#22c55e', name: '가로 쪽판' },
-            cut_corner: { fill: '#fef3c7', stroke: '#f59e0b', name: '코너 쪽판' },
-        };
-        function makeActualPieceSVG(piece, meta) {
-            const sc = Math.min(130 / piece.w, 190 / piece.h);
-            const W = Math.round(piece.w * sc);
-            const H = Math.round(piece.h * sc);
-            const cutRects = (piece.cuts || []).map(cut => {
-                const cx1 = Math.max(piece.x, cut.x);
-                const cy1 = Math.max(piece.y, cut.y);
-                const cx2 = Math.min(piece.x + piece.w, cut.x + cut.w);
-                const cy2 = Math.min(piece.y + piece.h, cut.y + cut.h);
-                if (cx2 - cx1 <= 0.5 || cy2 - cy1 <= 0.5) return '';
-                return `<rect x="${Math.round((cx1 - piece.x) * sc)}" y="${Math.round((cy1 - piece.y) * sc)}" width="${Math.round((cx2 - cx1) * sc)}" height="${Math.round((cy2 - cy1) * sc)}" fill="#fff" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`;
-            }).join('');
-            return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">` +
-                `<rect width="${W}" height="${H}" fill="${meta.fill}" stroke="${meta.stroke}" stroke-width="1"/>` +
-                cutRects +
-                `</svg>`;
-        }
-        const groups = [];
-        layout.pieces.forEach(piece => {
-            const dim = `${Math.round(piece.w)}×${Math.round(piece.h)}`;
-            const meta = colors[piece.sourceType] || colors[piece.type] || colors.full;
-            const name = piece.cutByColumn ? `${meta.name}(기둥 절단)` : meta.name;
-            const cutKey = getPieceCutKey(piece);
-            const found = groups.find(group => group.name === name && group.dim === dim && group.type === piece.type && group.cutKey === cutKey);
-            if (found) found.count += 1;
-            else groups.push({ name, dim, type: piece.type, cutKey, count: 1, piece, meta });
         });
-        groups.sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.dim.localeCompare(b.dim, 'ko'));
-        container.innerHTML = groups.map(group => makeCard(
-            group.count,
-            makeActualPieceSVG(group.piece, group.meta),
-            [{ name: group.name, dim: group.dim }]
-        )).join('');
+
+        // 원장 규격 레이블 (하단)
+        html += `<text x="${W / 2}" y="${H + 11}" text-anchor="middle" font-size="9" fill="#94a3b8">원장 ${Math.round(sw)}×${Math.round(sl)}mm</text>`;
+
+        return `<svg width="${W}" height="${H + 14}" xmlns="http://www.w3.org/2000/svg">${html}</svg>`;
     }
 
-    renderActualPieceCards();
-    return;
+    function makeCard(count, svgHtml, pieceName, pieceDim) {
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 14px">` +
+            `<p style="font-size:12px;font-weight:900;color:#3b82f6;margin:0">${count}장</p>` +
+            svgHtml +
+            `<div style="text-align:center;line-height:1.5">` +
+            `<p style="font-size:11px;font-weight:900;color:#1e293b;margin:0">${pieceName}</p>` +
+            `<p style="font-size:10px;color:#64748b;margin:0">${pieceDim}mm</p>` +
+            `</div></div>`;
+    }
 
-    const hasCorner      = rem_w > 0 && rem_l > 0;
-    const cornerFromCutL = hasCorner && corner_sheets === 0 && cut_l_sheets > 0;
-    const cornerFromCutW = hasCorner && corner_sheets === 0 && cut_l_sheets === 0 && cut_w_sheets > 0;
-
-    // ── 온장 ──
+    // ── 원장 (절단 없음) ──
     if (full_sheets > 0) {
         container.innerHTML += makeCard(
             full_sheets,
-            makeSVG(sw, sl,
-                [{x:0, y:0, w:sw, h:sl, fill:'#f8fafc', stroke:'#64748b'}],
+            makeSheetSVG(
+                [{x:0, y:0, w:sw, h:sl, fill:'#f8fafc', stroke:'#64748b', textColor:'#475569'}],
                 []
             ),
-            [{name:'온장', dim:`${sw}×${sl}`}]
+            '원장', `${Math.round(sw)}×${Math.round(sl)}`
         );
     }
 
-    // ── 세로 쪽판 ──
-    if (rem_w > 0 && rows_full > 0) {
-        const stdSheets = cornerFromCutW ? cut_w_sheets - 1 : cut_w_sheets;
-
-        // 표준 세로 쪽판 카드
-        if (stdSheets > 0) {
-            container.innerHTML += makeCard(
-                stdSheets,
-                makeSVG(sw, sl,
-                    [{x:0, y:0, w:rem_w, h:sl, fill:'#dbeafe', stroke:'#3b82f6'}],
-                    [{dir:'v', pos:rem_w}]
-                ),
-                [{name:'세로 쪽판', dim:`${rem_w}×${sl}`}]
-            );
+    // 원장별 쪽판 수 목록 → 같은 구성끼리 카드 묶기 (마지막 원장에 코너 포함 가능)
+    function groupStripSheets(total, sheets, k, withCorner) {
+        const groups = [];
+        for (let s = 0; s < sheets; s++) {
+            const m = s < sheets - 1 ? k : total - (sheets - 1) * k;
+            const corner = withCorner && s === sheets - 1;
+            const found = groups.find(g => g.m === m && g.corner === corner);
+            if (found) found.count += 1;
+            else groups.push({ m, corner, count: 1 });
         }
-
-        // 조합 카드: 세로 쪽판 + 코너 쪽판
-        if (cornerFromCutW) {
-            const wasteW = sw - rem_w;
-            const pieces   = [{x:0, y:0, w:rem_w, h:sl, fill:'#dbeafe', stroke:'#3b82f6'}];
-            const cutLines = [{dir:'v', pos:rem_w}];
-            if (wasteW > 0) {
-                pieces.push({x:rem_w, y:0, w:Math.min(rem_w, wasteW), h:Math.min(rem_l, sl), fill:'#fef3c7', stroke:'#f59e0b'});
-                // 수평 절단선: 세로 쪽판 우측 waste 영역에만 (세로 쪽판 침범 안 함)
-                if (rem_l < sl) cutLines.push({dir:'h', pos:rem_l, from:rem_w, to:sw});
-            }
-            container.innerHTML += makeCard(
-                1,
-                makeSVG(sw, sl, pieces, cutLines),
-                [{name:'세로 쪽판', dim:`${rem_w}×${sl}`}, {name:'코너 쪽판', dim:`${rem_w}×${rem_l}`}]
-            );
-        }
+        return groups;
     }
 
-    // ── 가로 쪽판 ──
-    if (rem_l > 0 && cols_full > 0) {
-        const stdSheets = cornerFromCutL ? cut_l_sheets - 1 : cut_l_sheets;
-
-        // 표준 가로 쪽판 카드
-        if (stdSheets > 0) {
-            container.innerHTML += makeCard(
-                stdSheets,
-                makeSVG(sw, sl,
-                    [{x:0, y:0, w:sw, h:rem_l, fill:'#dcfce7', stroke:'#22c55e'}],
-                    [{dir:'h', pos:rem_l}]
-                ),
-                [{name:'가로 쪽판', dim:`${sw}×${rem_l}`}]
-            );
-        }
-
-        // 조합 카드: 가로 쪽판 + 코너 쪽판
-        // cut_l_sheets=1이면 stdSheets=0 → 조합 카드만 표시됨
-        if (cornerFromCutL) {
-            const wasteH   = sl - rem_l;
-            const pieces   = [{x:0, y:0, w:sw, h:rem_l, fill:'#dcfce7', stroke:'#22c55e'}];
-            const cutLines = [{dir:'h', pos:rem_l}];
-            if (wasteH > 0) {
-                pieces.push({x:0, y:rem_l, w:rem_w, h:Math.min(rem_l, wasteH), fill:'#fef3c7', stroke:'#f59e0b'});
-                // 수직 절단선: 가로 쪽판 아래 waste 영역에만 (가로 쪽판 침범 안 함)
-                cutLines.push({dir:'v', pos:rem_w, from:rem_l, to:sl});
+    // ── 세로 쪽판 (수직 절단) ──
+    if (rem_w > 0 && cut_w_sheets > 0) {
+        groupStripSheets(cut_w_count, cut_w_sheets, kW, cornerFromCutW).forEach(g => {
+            const used = g.m * rem_w;
+            const pieces = [];
+            const cutLines = [];
+            for (let i = 0; i < g.m; i++) {
+                pieces.push({x:i*rem_w, y:0, w:rem_w, h:sl, fill:'#dbeafe', stroke:'#3b82f6', textColor:'#1d4ed8'});
+                if ((i + 1) * rem_w < sw) cutLines.push({dir:'v', pos:(i + 1) * rem_w});
+            }
+            if (g.corner) {
+                pieces.push({x:used, y:0, w:rem_w, h:rem_l, fill:'#fef3c7', stroke:'#f59e0b', textColor:'#92400e'});
+                pieces.push({x:used+rem_w, y:0, w:sw-used-rem_w, h:rem_l, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
+                pieces.push({x:used, y:rem_l, w:sw-used, h:sl-rem_l, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
+                if (rem_l < sl) cutLines.push({dir:'h', pos:rem_l, from:used, to:sw});
+                if (used + rem_w < sw) cutLines.push({dir:'v', pos:used + rem_w, from:0, to:rem_l});
+            } else {
+                pieces.push({x:used, y:0, w:sw-used, h:sl, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
             }
             container.innerHTML += makeCard(
-                1,
-                makeSVG(sw, sl, pieces, cutLines),
-                [{name:'가로 쪽판', dim:`${sw}×${rem_l}`}, {name:'코너 쪽판', dim:`${rem_w}×${rem_l}`}]
+                g.count,
+                makeSheetSVG(pieces.filter(p => p.w > 0.5 && p.h > 0.5), cutLines),
+                `세로 쪽판 ${g.m}개${g.corner ? ' + 코너 쪽판' : ''}`,
+                `${Math.round(rem_w)}×${Math.round(sl)}${g.corner ? ` / ${Math.round(rem_w)}×${Math.round(rem_l)}` : ''}`
             );
-        }
+        });
     }
 
-    // ── 코너 쪽판 (별도 원장 필요) ──
-    if (hasCorner && corner_sheets === 1) {
+    // ── 가로 쪽판 (수평 절단) ──
+    if (rem_l > 0 && cut_l_sheets > 0) {
+        groupStripSheets(cut_l_count, cut_l_sheets, kL, cornerFromCutL).forEach(g => {
+            const used = g.m * rem_l;
+            const pieces = [];
+            const cutLines = [];
+            for (let i = 0; i < g.m; i++) {
+                pieces.push({x:0, y:i*rem_l, w:sw, h:rem_l, fill:'#dcfce7', stroke:'#22c55e', textColor:'#15803d'});
+                if ((i + 1) * rem_l < sl) cutLines.push({dir:'h', pos:(i + 1) * rem_l});
+            }
+            if (g.corner) {
+                pieces.push({x:0, y:used, w:rem_w, h:rem_l, fill:'#fef3c7', stroke:'#f59e0b', textColor:'#92400e'});
+                pieces.push({x:rem_w, y:used, w:sw-rem_w, h:rem_l, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
+                pieces.push({x:0, y:used+rem_l, w:sw, h:sl-used-rem_l, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
+                if (rem_w < sw) cutLines.push({dir:'v', pos:rem_w, from:used, to:used + rem_l});
+                if (used + rem_l < sl) cutLines.push({dir:'h', pos:used + rem_l});
+            } else {
+                pieces.push({x:0, y:used, w:sw, h:sl-used, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'});
+            }
+            container.innerHTML += makeCard(
+                g.count,
+                makeSheetSVG(pieces.filter(p => p.w > 0.5 && p.h > 0.5), cutLines),
+                `가로 쪽판 ${g.m}개${g.corner ? ' + 코너 쪽판' : ''}`,
+                `${Math.round(sw)}×${Math.round(rem_l)}${g.corner ? ` / ${Math.round(rem_w)}×${Math.round(rem_l)}` : ''}`
+            );
+        });
+    }
+
+    // ── 코너 쪽판 (별도 원장 필요한 경우) ──
+    if (hasCorner && corner_sheets > 0) {
         container.innerHTML += makeCard(
-            1,
-            makeSVG(sw, sl,
-                [{x:0, y:0, w:rem_w, h:rem_l, fill:'#fef3c7', stroke:'#f59e0b'}],
+            corner_sheets,
+            makeSheetSVG(
+                [
+                    {x:0,     y:0,     w:rem_w,    h:rem_l,    fill:'#fef3c7', stroke:'#f59e0b', textColor:'#92400e'},
+                    {x:rem_w, y:0,     w:sw-rem_w, h:rem_l,    fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'},
+                    {x:0,     y:rem_l, w:sw,       h:sl-rem_l, fill:WASTE_FILL, stroke:WASTE_STROKE, textColor:'#94a3b8'}
+                ],
                 [{dir:'v', pos:rem_w}, {dir:'h', pos:rem_l}]
             ),
-            [{name:'코너 쪽판', dim:`${rem_w}×${rem_l}`}]
+            '코너 쪽판', `${Math.round(rem_w)}×${Math.round(rem_l)}`
         );
     }
 }

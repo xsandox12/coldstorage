@@ -207,6 +207,35 @@ code -X DELETE "$BASE/api/quotations/$OID2" >/dev/null
 check "대시보드 내부메모 미노출"  "true" \
       "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
 
+# ── Phase 4: 도면 통합 ──────────────────────────────────────
+echo
+echo "[Phase 4 도면]"
+check "도면 앱 서빙"              200 "$(code "$BASE/drawing_app.html")"
+check "  drawing_base.js"         200 "$(code "$BASE/drawing_base.js")"
+check "  drawing_checkplate.js"   200 "$(code "$BASE/drawing_checkplate.js")"
+check "죽은 gallery.html 제거"    404 "$(code "$BASE/gallery.html")"
+check "죽은 viewer3d.html 제거"   404 "$(code "$BASE/viewer3d.html")"
+check "★ 도면 앱이 구조화된 BOM 을 보냄" "true" \
+      "$(body "$BASE/drawing_app.html" | grep -q 'items:     bomToItems()' && echo true || echo false)"
+check "  ?load= 로 도면 이어 열기" "true" \
+      "$(body "$BASE/drawing_app.html" | grep -q "get('load')" && echo true || echo false)"
+check "drawing_id 기록 -> 200"    200 "$(code -X PATCH "$BASE/api/quotations/$OID/drawing" \
+                                        -H 'Content-Type: application/json' -d '{"drawing_id":"12345"}')"
+check "  실제로 저장됨"           "12345" \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).drawing_id")"
+check "없는 주문의 drawing -> 404" 404 "$(code -X PATCH "$BASE/api/quotations/999999/drawing" \
+                                        -H 'Content-Type: application/json' -d '{"drawing_id":"1"}')"
+# 도면 저장소는 SaaS 가 서빙할 때만 동작한다 (drawingtool.agonyang.com 은 정적 서빙)
+DRAWID="9$$"
+check "도면 저장 -> 200"          200 "$(code -X POST "$BASE/api/drawings" -H 'Content-Type: application/json' \
+                                        -d "{\"id\":$DRAWID,\"name\":\"smoke\",\"starred\":false,\"state\":{\"w\":5000}}")"
+check "  다시 읽힘"               "true" \
+      "$(body "$BASE/api/drawings" | jsonq "JSON.parse(s).some(d=>Number(d.id)===$DRAWID)")"
+check "  state 보존"              5000 "$(body "$BASE/api/drawings" | jsonq "(d=>d&&d.state?d.state.w:'')(JSON.parse(s).find(x=>Number(x.id)===$DRAWID))")"
+code -X DELETE "$BASE/api/drawings/$DRAWID" >/dev/null
+check "  삭제됨"                  "true" \
+      "$(body "$BASE/api/drawings" | jsonq "JSON.parse(s).every(d=>Number(d.id)!==$DRAWID)")"
+
 # ── Phase 3: 검색 · 페이지네이션 · 내보내기 · 인쇄 ──────────
 echo
 echo "[Phase 3 목록 조회]"

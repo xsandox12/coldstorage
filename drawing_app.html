@@ -4,8 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ColdStorage Drawing Engine | V2.2 Full Feature</title>
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="도면">
+    <meta name="theme-color" content="#1e40af">
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
         body { font-family: 'Pretendard', sans-serif; background: #f8fafc; margin: 0; padding: 0; overflow-x: hidden; }
@@ -18,6 +25,7 @@
         #drawing-items::-webkit-scrollbar { width: 4px; }
         #drawing-items::-webkit-scrollbar-thumb { background:#e2e8f0; border-radius:4px; }
     </style>
+
 
 <style id="erp-skin">
 :root{--bg:#f4f5f7;--panel:#fff;--line:#e5e7eb;--line-2:#eef0f3;--ink:#0f172a;--ink-2:#334155;--mute:#64748b;--brand:#1e40af;--brand-soft:#eff4ff}
@@ -86,6 +94,224 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 /* Section block at top of right panel */
 .flex-1.space-y-4,.flex-1.space-y-6{gap:0!important}
 </style>
+
+<style id="responsive">
+/* ── 태블릿 대응 ─────────────────────────────────────── */
+
+/* 1280px 이하: 패널 폭 축소 */
+@media (max-width: 1280px) {
+    body > .flex { padding: 8px 10px !important; gap: 8px !important; }
+    body > .flex > .w-80 { width: 220px !important; }
+    #right-panel { width: 200px !important; }
+}
+
+/* 1024px 이하: 패널 더 좁게 */
+@media (max-width: 1024px) {
+    body > .flex > .w-80 { width: 190px !important; }
+    #right-panel { width: 180px !important; }
+}
+
+/* 880px 이하: 세로 스택 (태블릿 세로 모드) */
+@media (max-width: 880px) {
+    body > .flex { flex-wrap: wrap !important; }
+    body > .flex > .w-80 { width: 100% !important; }
+    #right-panel {
+        width: 100% !important;
+        flex-direction: row !important;
+        display: flex !important;
+        gap: 10px !important;
+    }
+    #right-panel > .card { flex: 1 !important; }
+    .flex-1.space-y-6 { width: 100% !important; }
+}
+
+/* 터치 디바이스: 탭 영역 최소 크기 확보 */
+@media (pointer: coarse) {
+    button { min-height: 34px !important; }
+    select { height: 34px !important; min-height: 34px !important; }
+    input[type=number], input[type=text] { height: 34px !important; }
+    #btn-elec-single, #btn-elec-three,
+    #btn-use-ref, #btn-use-frz {
+        min-height: 30px !important;
+        padding: 4px 8px !important;
+    }
+}
+</style>
+
+<style id="print-styles">
+/* 화면에서는 인쇄 전용 요소 숨김 */
+.print-only { display: none; }
+
+@media print {
+    /* A4 가로: 1쪽 도면 + 표제란, 2쪽부터 수량표·절단 도면 */
+    @page { size: A4 landscape; margin: 8mm; }
+
+    html, body {
+        background: #fff !important;
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+        overflow: visible !important;
+    }
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* ── 화면 크롬 숨김 ───────────────────────────────── */
+    .w-80,                          /* 좌측 설정 사이드바 */
+    #right-panel,                   /* 메모 + 현장사진 패널 */
+    #drawing-loader,
+    #help-panel,
+    #selection-panel,
+    #photo-modal,
+    #panel-label-editor,
+    .print-hide,
+    .card.p-4 .absolute {           /* 캔버스 위 떠있는 배지/버튼 */
+        display: none !important;
+    }
+
+    /* ── 레이아웃 리셋: 단일 컬럼 ─────────────────────── */
+    body { padding: 0 !important; margin: 0 !important; }
+    body > .flex {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 0 !important;
+    }
+    .flex-1 {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: none !important;
+    }
+    .flex-1.space-y-6 > * + * { margin-top: 3mm !important; }
+    .print-only { display: block !important; }
+
+    /* ── 1쪽: 도면 ────────────────────────────────────── */
+    .flex-1 > .card.p-4 {
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        background: #fff !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+    #storageCanvas {
+        width: 100% !important;
+        height: auto !important;
+        max-width: 100% !important;
+        border: 1px solid #94a3b8 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        display: block !important;
+    }
+
+    /* ── 1쪽 하단: 메모 + 표제란 ──────────────────────── */
+    #print-footer {
+        display: flex !important;
+        align-items: stretch !important;
+        gap: 4mm !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        break-after: page !important;
+        page-break-after: always !important;
+    }
+    #print-only-memo {
+        flex: 1 !important;
+        border: 1px solid #94a3b8 !important;
+        padding: 2mm 3mm !important;
+    }
+    #print-only-memo:not([data-has="1"]) { visibility: hidden !important; }
+    #print-only-memo .pm-label {
+        font-size: 11px !important;
+        font-weight: 800 !important;
+        color: #475569 !important;
+        margin-bottom: 1mm !important;
+    }
+    #print-only-memo .pm-body {
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #0f172a !important;
+        white-space: pre-wrap !important;
+        line-height: 1.45 !important;
+    }
+    #print-titleblock {
+        width: 180mm !important;
+        margin-left: auto !important;
+        border-collapse: collapse !important;
+        border: 1.5px solid #0f172a !important;
+    }
+    #print-titleblock th,
+    #print-titleblock td {
+        border: 1px solid #94a3b8 !important;
+        padding: 1.3mm 2.5mm !important;
+        text-align: left !important;
+        vertical-align: middle !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+    }
+    #print-titleblock th {
+        width: 18mm !important;
+        background: #f1f5f9 !important;
+        color: #334155 !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+    }
+    #print-titleblock td {
+        color: #0f172a !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+    }
+    #print-titleblock tr:first-child td:first-of-type {
+        font-size: 15px !important;
+        font-weight: 800 !important;
+    }
+
+    /* ── 2쪽: 제목 + 수량표 / 절단 도면 ───────────────── */
+    #print-page2-title {
+        font-size: 15px !important;
+        font-weight: 800 !important;
+        color: #0f172a !important;
+        border-bottom: 2px solid #0f172a !important;
+        padding-bottom: 2mm !important;
+    }
+    #bom-stat-grid,
+    #base-bom-card,
+    #base-cut-diagrams,
+    #checkplate-bom-card,
+    #checkplate-cut-diagrams {
+        border: 1px solid #94a3b8 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+    }
+    /* 수량표는 한 덩어리로, 절단 도면 카드는 원장 그림 단위로만 끊김 방지 */
+    #bom-stat-grid,
+    #base-bom-card,
+    #checkplate-bom-card {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+    .overflow-x-auto { overflow: visible !important; }
+    #bom-stat-grid .flex.gap-6 { flex-wrap: wrap !important; }
+    #bom-stat-grid table,
+    #base-bom-card table,
+    #checkplate-bom-card table { font-size: 12px !important; }
+    table thead th { font-size: 11px !important; }
+    table tbody td { font-size: 12px !important; padding: 1.2mm 3mm !important; }
+    h4 { font-size: 13px !important; color: #0f172a !important; }
+    /* 절단 도면: SVG 글자·원장 그림을 함께 확대 */
+    #base-cut-diagrams-container,
+    #cut-diagrams-container { gap: 4mm !important; }
+    #base-cut-diagrams-container > div,
+    #cut-diagrams-container > div {
+        zoom: 1.4;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+}
+</style>
 </head>
 <body class="p-6">
     <div class="flex gap-8">
@@ -96,15 +322,20 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 <h4 class="font-bold text-slate-600 text-sm border-b border-slate-100 pb-2">도면 관리</h4>
                 <div class="space-y-1">
                     <label class="text-[10px] font-black text-slate-400">도면 이름</label>
-                    <input type="text" id="drawingName" placeholder="저장할 이름을 입력하세요"
-                        class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder:font-normal placeholder:text-slate-300">
+                    <div class="flex gap-1.5">
+                        <input type="text" id="drawingName" placeholder="저장할 이름을 입력하세요"
+                            class="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 placeholder:font-normal placeholder:text-slate-300">
+                        <button onclick="resetDrawing()" title="초기화" class="shrink-0 w-9 bg-slate-100 text-slate-500 rounded-lg border border-slate-200 hover:bg-slate-200 transition-all flex items-center justify-center">
+                            <i class="fa-solid fa-rotate-left text-[11px]"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                     <button onclick="saveDrawing()" class="p-2.5 bg-blue-600 text-white rounded-xl font-black text-[11px] hover:bg-blue-700 transition-all flex items-center justify-center gap-1.5 shadow-sm">
                         <i class="fa-solid fa-floppy-disk"></i> 저장
                     </button>
-                    <button onclick="resetDrawing()" class="p-2.5 bg-slate-100 text-slate-600 rounded-xl font-black text-[11px] border border-slate-200 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
-                        <i class="fa-solid fa-rotate-left"></i> 초기화
+                    <button onclick="document.getElementById('zip-loader-input').click()" class="p-2.5 bg-slate-100 text-slate-600 rounded-xl font-black text-[11px] border border-slate-200 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-folder-open"></i> 불러오기
                     </button>
                 </div>
             </div>
@@ -212,9 +443,14 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             </div>
                         </div>
                         <div class="space-y-1">
-                            <label class="text-[9px] font-black text-slate-400 uppercase">최대 간격 (600~800)</label>
-                            <input type="range" id="pipeGap" min="600" max="800" value="700" oninput="updateDrawing()" class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
-                            <div class="flex justify-between text-[8px] font-bold text-slate-400"><span>600mm</span><span id="gapVal" class="text-blue-600">700mm</span><span>800mm</span></div>
+                            <label class="text-[9px] font-black text-slate-400 uppercase">최대 간격 (600~1200)</label>
+                            <input type="range" id="pipeGap" min="600" max="1200" value="800" oninput="updateDrawing()" class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                            <div class="flex justify-between text-[8px] font-bold text-slate-400"><span>600mm</span><span id="gapVal" class="text-blue-600">800mm</span><span>1200mm</span></div>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[9px] font-black text-slate-400 uppercase">보강재 최대 간격 (2000~4000)</label>
+                            <input type="range" id="braceGap" min="2000" max="4000" value="3000" oninput="updateDrawing()" class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                            <div class="flex justify-between text-[8px] font-bold text-slate-400"><span>2000mm</span><span id="braceGapVal" class="text-blue-600">3000mm</span><span>4000mm</span></div>
                         </div>
                     </div>
 
@@ -248,13 +484,64 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     <button onclick="addPartition()" class="p-2 bg-slate-900 text-white rounded-lg font-black text-[10px] hover:bg-black transition-all shadow-lg">칸막이 추가</button>
                     <button onclick="addColumn()" class="p-2 bg-violet-600 text-white rounded-lg font-black text-[10px] hover:bg-violet-700 transition-all shadow-sm col-span-2">🏛 기둥 추가</button>
                 </div>
+
+                <!-- 기계 추가 -->
+                <div id="machine-list" class="space-y-1.5"></div>
+                <div class="border-t border-slate-100 pt-2">
+                    <button id="btn-machine-toggle" onclick="toggleMachineForm()" class="w-full p-2 bg-slate-100 text-slate-600 rounded-lg font-black text-[10px] border border-slate-200 hover:bg-slate-200 transition-all flex items-center justify-center gap-1">
+                        기계 추가 <i class="fa-solid fa-circle-plus"></i>
+                    </button>
+                    <div id="machine-form" class="hidden space-y-2 pt-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-black text-slate-400">전기</span>
+                            <div class="flex gap-1">
+                                <button id="btn-elec-single" onclick="setElecType('단상')" class="px-2 py-0.5 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 hover:bg-slate-50">단상</button>
+                                <button id="btn-elec-three" onclick="setElecType('삼상')" class="px-2 py-0.5 rounded-md text-[10px] font-black border bg-blue-600 text-white border-blue-600">삼상</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-black text-slate-400">용도</span>
+                            <div class="flex gap-1">
+                                <button id="btn-use-ref" onclick="setUseType('냉장')" class="px-2 py-0.5 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 hover:bg-slate-50">냉장</button>
+                                <button id="btn-use-frz" onclick="setUseType('냉동')" class="px-2 py-0.5 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 hover:bg-slate-50">냉동</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-black text-slate-400">배관길이</span>
+                            <select id="pipe-length" class="bg-slate-50 border border-slate-200 rounded-md text-[10px] font-bold px-2 h-[22px] outline-none">
+                                <option selected>5m</option>
+                                <option>10m</option>
+                                <option>15m</option>
+                                <option>20m</option>
+                                <option>25m</option>
+                                <option>30m</option>
+                                <option>그 외</option>
+                            </select>
+                        </div>
+                        <button onclick="addMachineCard()" class="w-full p-2 bg-white border border-slate-300 rounded-lg font-black text-[10px] text-slate-600 hover:bg-slate-50 transition-all">
+                            확인
+                        </button>
+                    </div>
+                </div>
             </div>
 
         </div>
 
         <!-- 메인 도면 영역 -->
         <div class="flex-1 space-y-6">
-            <div class="card p-8 flex flex-col items-center relative min-h-[600px] bg-white overflow-hidden">
+            <!-- 모드 탭 + 인쇄 버튼 -->
+            <div class="flex items-center justify-between print-hide">
+                <div class="flex gap-1 bg-white border border-slate-200 rounded-lg p-1">
+                    <button id="tab-storage" onclick="setMode('storage')" class="px-3 py-1.5 rounded-md text-[11px] font-black transition-all bg-blue-600 text-white">저장고 레이아웃</button>
+                    <button id="tab-base" onclick="setMode('base')" class="px-3 py-1.5 rounded-md text-[11px] font-black transition-all text-slate-500 hover:bg-slate-100">기초조립대</button>
+                    <button id="tab-checkplate" onclick="setMode('checkplate')" class="px-3 py-1.5 rounded-md text-[11px] font-black transition-all text-slate-500 hover:bg-slate-100">바닥 체크판</button>
+                </div>
+                <button onclick="printDrawing()" class="flex items-center gap-2 bg-blue-600 text-white rounded-xl px-4 py-2 text-[11px] font-black hover:bg-blue-700 shadow-sm transition-all">
+                    <i class="fa-solid fa-print"></i> 인쇄
+                </button>
+            </div>
+
+            <div class="card p-4 flex flex-col items-center relative bg-white overflow-hidden">
                 <div class="absolute top-6 left-6 flex gap-2 z-10">
                     <span id="areaDisplay" class="bg-blue-600 text-white text-[10px] font-black px-4 py-2 rounded-full shadow-lg italic tracking-tight">0평</span>
                     <span id="modeDisplay" class="bg-slate-800 text-white text-[10px] font-black px-4 py-2 rounded-full shadow-lg">저장고 레이아웃</span>
@@ -265,27 +552,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
                 <!-- 도면 불러오기 드롭다운 (우측 상단) -->
                 <div class="absolute top-6 right-6 z-20" id="drawing-loader">
-                    <div class="relative flex items-start gap-2">
+                    <div class="flex items-start gap-2">
                         <button onclick="toggleHelpPanel()" class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[11px] font-black text-slate-600 hover:border-amber-400 hover:text-amber-600 shadow-sm transition-all">
                             <i class="fa-solid fa-circle-question"></i>
                             사용방법
                         </button>
-                        <button onclick="toggleDrawingList()" class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[11px] font-black text-slate-600 hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all">
-                            <i class="fa-solid fa-folder-open"></i>
-                            불러오기
-                            <i class="fa-solid fa-chevron-down text-[9px]"></i>
-                        </button>
-                        <div id="drawing-list" class="hidden absolute right-0 top-full mt-2 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden" style="width:288px">
-                            <div class="p-3 border-b border-slate-100">
-                                <div class="relative">
-                                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
-                                    <input type="text" id="drawing-search" placeholder="도면 검색..."
-                                        oninput="renderDrawingList()"
-                                        class="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 placeholder:font-normal">
-                                </div>
-                            </div>
-                            <div id="drawing-items" class="overflow-y-auto" style="max-height:320px"></div>
-                        </div>
+                        <input type="file" id="zip-loader-input" accept=".cdz,.zip" class="hidden" onchange="loadFromZip(event)">
                     </div>
                 </div>
 
@@ -308,6 +580,17 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
                 <canvas id="storageCanvas" class="border border-slate-100 shadow-inner"></canvas>
             </div>
+
+            <!-- 인쇄 전용: 1쪽 하단 메모 + 표제란 -->
+            <div id="print-footer" class="print-only">
+                <div id="print-only-memo">
+                    <div class="pm-label">메모</div>
+                    <div class="pm-body" id="pm-body"></div>
+                </div>
+                <table id="print-titleblock"><tbody id="tb-body"></tbody></table>
+            </div>
+            <!-- 인쇄 전용: 2쪽 제목 -->
+            <div id="print-page2-title" class="print-only"></div>
             
             <div id="selection-panel" class="hidden card p-5 border-l-4 border-l-amber-500 bg-amber-50/30">
                 <div class="flex justify-between items-center">
@@ -319,25 +602,46 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 </div>
             </div>
 
-             <div id="bom-stat-grid" class="grid grid-cols-2 gap-6">
-                 <div class="card p-5 border-l-4 border-l-blue-500"><p id="bom-title" class="text-[10px] text-slate-400 font-black uppercase tracking-widest">판넬 수량 (BOM)</p><p id="mainCount" class="text-2xl font-black text-slate-800 mt-1">0 장</p></div>
-                 <div class="card p-5 border-l-4 border-l-emerald-500"><p id="stat-title" class="text-[10px] text-slate-400 font-black uppercase tracking-widest">수량</p><p id="mainStat" class="text-2xl font-black text-blue-600 mt-1">0 m²</p></div>             </div>
+            <div id="bom-stat-grid" class="card px-5 py-4">
+                <div class="flex gap-4 items-start overflow-x-auto">
+                    <div class="shrink-0 flex flex-col gap-3 pr-4 border-r border-slate-200" style="min-width:88px">
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">총 면적</p>
+                            <p id="mainStat" class="text-xl font-black text-blue-600 mt-0.5">0 m²</p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">판넬 수량</p>
+                            <p id="mainCount" class="text-xl font-black text-slate-800 mt-0.5">0 장</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-6 min-w-0">
+                        <div id="bom-floor-section"></div>
+                        <div id="bom-wall-section"></div>
+                        <div id="bom-partition-section"></div>
+                        <div id="bom-door-section"></div>
+                    </div>
+                </div>
+            </div>
 
             <!-- 기초조립대 파이프 수량 요약 카드 -->
-            <div id="base-bom-card" class="hidden card px-6 py-4 border-l-4 border-l-blue-500">
-                <div class="flex items-center gap-6">
-                    <!-- 좌측: 타이틀 + 총 개수 -->
-                    <div class="shrink-0 flex flex-col justify-center pr-6 border-r border-slate-200">
-                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">파이프 수량</p>
-                        <p id="base-bom-total" class="text-3xl font-black text-amber-500 mt-0.5">0개</p>
+            <div id="base-bom-card" class="hidden card px-5 py-4">
+                <div class="flex gap-4 items-start overflow-x-auto">
+                    <div class="shrink-0 flex flex-col gap-3 pr-4 border-r border-slate-200" style="min-width:88px">
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">필요 파이프</p>
+                            <p id="base-bom-stock-count" class="text-xl font-black text-blue-600 mt-0.5">0개</p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-wider">파이프 수량</p>
+                            <p id="base-bom-total" class="text-xl font-black text-slate-800 mt-0.5">0개</p>
+                        </div>
                     </div>
-                    <!-- 우측: 테이블 -->
                     <div class="flex-1 overflow-x-auto">
                         <table class="text-[11px] border-collapse w-auto">
                             <thead>
                                 <tr style="background:#1e3a5f;">
-                                    <th style="padding:5px 14px;text-align:left;color:white;font-weight:900;white-space:nowrap;">파이프 종류</th>
-                                    <th style="padding:5px 14px;text-align:right;color:white;font-weight:900;white-space:nowrap;">개당 길이(mm)</th>
+                                    <th style="padding:5px 14px;text-align:left;color:white;font-weight:900;white-space:nowrap;">파이프</th>
+                                    <th style="padding:5px 14px;text-align:right;color:white;font-weight:900;white-space:nowrap;">길이</th>
                                     <th style="padding:5px 14px;text-align:center;color:white;font-weight:900;white-space:nowrap;">수량</th>
                                 </tr>
                             </thead>
@@ -345,6 +649,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                         </table>
                     </div>
                 </div>
+            </div>
+
+            <!-- 기초조립대 파이프 절단 도면 카드 -->
+            <div id="base-cut-diagrams" class="hidden card p-5">
+                <h4 class="font-black text-slate-700 text-sm border-b border-slate-100 pb-3 mb-4">절단 도면</h4>
+                <div id="base-cut-diagrams-container" class="flex flex-wrap gap-4 items-start"></div>
             </div>
 
             <!-- 체크판 원장 수량 요약 카드 -->
@@ -376,16 +686,35 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 <div id="cut-diagrams-container" class="flex flex-wrap gap-4 items-start"></div>
             </div>
 
-            <div class="flex justify-end gap-3 mt-4">
-                <button onclick="sendBOMToParent()" class="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg hover:bg-black transition-all flex items-center gap-2">
-                    <i class="fa-solid fa-file-invoice-dollar"></i> 견적서 생성
+        </div>
+
+        <!-- 우측 패널: 메모 + 현장사진 -->
+        <div id="right-panel" class="shrink-0 space-y-4" style="width:240px">
+            <div class="card p-4 space-y-2">
+                <h4 class="font-bold text-slate-600 text-[11px] border-b border-slate-100 pb-1.5 uppercase tracking-wider">메모</h4>
+                <textarea id="memo-text" rows="12" placeholder="메모를 입력하세요..." class="w-full bg-white border border-slate-200 rounded-lg p-2 text-[11px] font-medium resize-none outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-300 placeholder:font-normal" style="min-height:180px"></textarea>
+            </div>
+            <div class="card p-4 space-y-2">
+                <h4 class="font-bold text-slate-600 text-[11px] border-b border-slate-100 pb-1.5 uppercase tracking-wider">현장사진</h4>
+                <div id="photo-list" class="space-y-2"></div>
+                <button onclick="document.getElementById('photo-input').click()" class="w-full py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all flex items-center justify-center">
+                    <i class="fa-solid fa-circle-plus text-xl"></i>
                 </button>
+                <input type="file" id="photo-input" accept="image/*" multiple class="hidden" onchange="handlePhotoUpload(event)">
             </div>
         </div>
     </div>
 
-    <script src="drawing_base.js"></script>
-    <script src="drawing_checkplate.js"></script>
+    <!-- 사진 미리보기 모달 -->
+    <div id="photo-modal" class="hidden fixed inset-0 bg-black/75 z-50 flex items-center justify-center" onclick="closePhotoModal()">
+        <button onclick="closePhotoModal()" class="absolute top-4 right-4 w-9 h-9 bg-white rounded-full flex items-center justify-center text-slate-700 hover:bg-slate-100 shadow-lg">
+            <i class="fa-solid fa-xmark text-base"></i>
+        </button>
+        <img id="photo-modal-img" alt="" class="max-w-[80vw] max-h-[85vh] rounded-xl shadow-2xl object-contain" onclick="event.stopPropagation()">
+    </div>
+
+    <script src="drawing_base.js?v=17"></script>
+    <script src="drawing_checkplate.js?v=6"></script>
     <script>
         const globalSettings = { drawing: { panel_width: 900, panel_min_width: 200, panel_gap: 4, door_width_default: 830, door_height_default: 1800 } };
         let doors = [], partitions = [], drains = [], columns = [];
@@ -398,11 +727,38 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         let canvasPanY = 0;
         let isPanning = false;
         let panStart = null;
-        const CANVAS_W = 780;
-        const CANVAS_H = 660;
-        const CANVAS_CX = CANVAS_W / 2;
-        const CANVAS_CY = CANVAS_H / 2;
+        let CANVAS_W = 780;
+        let CANVAS_H = 520;
+        let CANVAS_CX = CANVAS_W / 2;
+        let CANVAS_CY = CANVAS_H / 2;
+        // 캔버스 픽셀 배율: 화면 1, 인쇄 시 고해상도 (논리 좌표 CANVAS_W×CANVAS_H는 그대로)
+        let canvasDPR = 1;
+
+        function resetViewportTransform() {
+            ctx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
+        }
+
+        function updateCanvasSize() {
+            if (window.__printMode) return; // 인쇄 중에는 고배율 캔버스 유지
+            const container = canvas.parentElement;
+            const pad = 32; // p-4 양쪽 16px
+            const available = container.clientWidth - pad;
+            CANVAS_W = Math.min(780, Math.max(360, available));
+            CANVAS_H = Math.round(CANVAS_W * (520 / 780));
+            CANVAS_CX = CANVAS_W / 2;
+            CANVAS_CY = CANVAS_H / 2;
+        }
+
+        function getDrawScale(w, l) {
+            const maxW = CANVAS_W * (440 / 780);
+            const maxH = CANVAS_H * (340 / 660);
+            return Math.min(maxW / w, maxH / l);
+        }
         let panelSashRecords = [];
+        let panelLabelHitAreas = [];
+        // 사용자가 직접 입력한 판넬 폭 (segmentId → { widths: [...] })
+        // 세그먼트 길이/판넬 수가 바뀌면 자동 무효화됨
+        let panelWidthOverrides = {};
         // 코너 소유: 'h'=가로벽(상/하) 우선, 'v'=세로벽(좌/우) 우선
         let cornerConfig = { TL: 'h', TR: 'h', BL: 'h', BR: 'h' };
 
@@ -460,7 +816,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const screenX = toViewportX(cx);
             const screenY = toViewportY(cy);
             ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            resetViewportTransform();
             ctx.font = options.font || 'bold 9px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -468,12 +824,15 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const lineH = options.lineH || 10;
             const labelH = textLines.length * lineH + 4;
             const labelW = Math.max(...textLines.map(line => ctx.measureText(line).width)) + 4;
+            // rotate(라디안): 세로 부재 등 라벨을 부재 방향으로 회전
+            ctx.translate(screenX, screenY);
+            if (options.rotate) ctx.rotate(options.rotate);
             ctx.fillStyle = options.bg || 'rgba(255,255,255,0.88)';
-            ctx.fillRect(screenX - labelW / 2, screenY - labelH / 2, labelW, labelH);
+            ctx.fillRect(-labelW / 2, -labelH / 2, labelW, labelH);
             ctx.fillStyle = options.color || '#475569';
             textLines.forEach((line, i) => {
-                const y = screenY + (i - (textLines.length - 1) / 2) * lineH;
-                ctx.fillText(line, screenX, y);
+                const y = (i - (textLines.length - 1) / 2) * lineH;
+                ctx.fillText(line, 0, y);
             });
             ctx.restore();
         }
@@ -485,15 +844,23 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             document.getElementById('storage-actions').classList.toggle('hidden', mode !== 'storage');
             document.getElementById('bom-stat-grid').classList.toggle('hidden', mode !== 'storage');
             document.getElementById('base-bom-card').classList.toggle('hidden', mode !== 'base');
+            document.getElementById('base-cut-diagrams').classList.toggle('hidden', mode !== 'base');
             document.getElementById('checkplate-options').classList.toggle('hidden', mode !== 'checkplate');
             document.getElementById('checkplate-bom-card').classList.toggle('hidden', mode !== 'checkplate');
             document.getElementById('checkplate-cut-diagrams').classList.toggle('hidden', mode !== 'checkplate');
-            
-            // 모드 탭 버튼은 부모 창(index.html)에서 관리됨
-            
+
+            ['storage', 'base', 'checkplate'].forEach(m => {
+                const btn = document.getElementById('tab-' + m);
+                if (!btn) return;
+                btn.className = 'px-3 py-1.5 rounded-md text-[11px] font-black transition-all ' +
+                    (m === mode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100');
+            });
+
             document.getElementById('modeDisplay').innerText = mode === 'storage' ? '저장고 레이아웃' : mode === 'base' ? '기초조립대 (파이프)' : '바닥 체크판 설계';
-            document.getElementById('bom-title').innerText = mode === 'storage' ? '판넬 수량 (BOM)' : '총 파이프 길이';
-            document.getElementById('stat-title').innerText = mode === 'storage' ? '수량' : '6m 원장 필요량';
+            const bomTitle = document.getElementById('bom-title');
+            const statTitle = document.getElementById('stat-title');
+            if (bomTitle) bomTitle.innerText = mode === 'storage' ? '판넬 수량 (BOM)' : '총 파이프 길이';
+            if (statTitle) statTitle.innerText = mode === 'storage' ? '수량' : '6m 원장 필요량';
             updateDrawing();
         }
 
@@ -509,13 +876,16 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const gap = globalSettings.drawing.panel_gap;
             const minW = 200;
 
+            // 판넬 수 n 기준으로 잔여폭 계산 (판넬 합 + (n-1)*gap === totalLen)
+            const n = Math.max(1, Math.ceil((totalLen + gap) / (pMax + gap)));
+            if (n === 1) return [totalLen];
+            const totalPWidth = totalLen - (n - 1) * gap;
+            const fullCount = n - 1;
+            const rem = totalPWidth - fullCount * pMax; // -gap < rem <= pMax
+
             if (isPartition) {
-                const n = Math.ceil((totalLen + gap) / (pMax + gap));
-                const totalPWidth = totalLen - (n - 1) * gap;
-                const rem = totalPWidth % pMax;
-                const fullCount = Math.floor(totalPWidth / pMax);
-                if (rem === 0) { let res = []; for (let i = 0; i < fullCount; i++) res.push(pMax); return res; }
-                if (rem < minW && fullCount > 0) {
+                if (rem >= pMax) { let res = []; for (let i = 0; i < n; i++) res.push(pMax); return res; }
+                if (rem < minW) {
                     let sideW = Math.round((rem + pMax) / 2);
                     let res = [sideW]; for (let i = 0; i < fullCount - 1; i++) res.push(pMax);
                     res.push(Math.round(totalPWidth - (sideW + (fullCount - 1) * pMax)));
@@ -534,24 +904,14 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 return hasOverlapA ? layoutB : layoutA;
             }
 
-            let n = Math.ceil((totalLen + gap) / (pMax + gap));
-            if (n < 1) n = 1;
-            let totalPWidth = totalLen - (n - 1) * gap;
             let res = [];
-            let rem = totalPWidth % pMax;
-            let fullCount = Math.floor(totalPWidth / pMax);
 
-            if (rem > 0 && rem < minW && fullCount > 0) {
-                if (rem <= gap) {
-                    // 잔여 rem이 gap 이하: 전체 판넬만 사용
-                    for (let i = 0; i < fullCount; i++) res.push(pMax);
-                } else {
-                    // 쪽판이 너무 작으면 양쪽에 균등 분배
-                    res.push((pMax + rem) / 2);
-                    for (let i = 0; i < fullCount - 1; i++) res.push(pMax);
-                    res.push((pMax + rem) / 2);
-                }
-            } else if (rem > 0) {
+            if (rem < minW) {
+                // 쪽판이 너무 작으면 양쪽에 균등 분배
+                res.push((pMax + rem) / 2);
+                for (let i = 0; i < fullCount - 1; i++) res.push(pMax);
+                res.push((pMax + rem) / 2);
+            } else if (rem < pMax) {
                 if (align === 'end') {
                     for (let i = 0; i < fullCount; i++) res.push(pMax);
                     res.push(rem);
@@ -564,7 +924,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     for (let i = 0; i < fullCount; i++) res.push(pMax);
                 }
             } else {
-                for (let i = 0; i < fullCount; i++) res.push(pMax);
+                for (let i = 0; i < n; i++) res.push(pMax);
             }
             return res;
         }
@@ -574,7 +934,10 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         }
 
         function getDoorSashState(door) {
-            const state = { startSash: '+', endSash: '-' };
+            // 슬라이딩 도어는 항상 +/+ (칸막이 끝·벽 코너에 붙은 쪽만 예외)
+            const state = door.type === 'sliding'
+                ? { startSash: '+', endSash: '+' }
+                : { startSash: '+', endSash: '-' };
             const partition = getPartitionByDoor(door);
             if (partition) {
                 const maxPos = Math.max(0, getPartitionSpanLength(partition) - getDoorFullWidth(door) - 4);
@@ -617,12 +980,39 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             door.pos = Math.round(Math.max(0, Math.min(maxPos, door.pos || 0)) / 2) * 2;
         }
 
+        // 외벽별 판넬 구간 (벽 로컬 좌표 시작점[외경 기준]과 길이) — renderStorageMode의 벽 배치와 동일
+        function getWallSpan(wallIndex) {
+            const w = parseInt(widthIn.value) || 5000;
+            const l = parseInt(lengthIn.value) || 4000;
+            const t = parseInt(thicknessIn.value) || 100;
+            const gap = globalSettings.drawing.panel_gap;
+            if (wallIndex === 0 || wallIndex === 2) {
+                const startV = (wallIndex === 2 ? cornerConfig.TL : cornerConfig.BL) === 'v';
+                const endV = (wallIndex === 2 ? cornerConfig.TR : cornerConfig.BR) === 'v';
+                return { start: startV ? t : 0, length: w - (startV ? t : 0) - (endV ? t : 0) };
+            }
+            const startV = (wallIndex === 3 ? cornerConfig.TL : cornerConfig.TR) === 'v';
+            const endV = (wallIndex === 3 ? cornerConfig.BL : cornerConfig.BR) === 'v';
+            return { start: startV ? 0 : t + gap, length: l - (startV ? 0 : t + gap) - (endV ? 0 : t + gap) };
+        }
+
+        function getWallDoorMaxPos(door) {
+            return Math.max(0, getWallSpan(door.wallIndex).length - getDoorFullWidth(door) - globalSettings.drawing.panel_gap);
+        }
+
+        function clampDoorToWall(door) {
+            if (door.partitionId) return;
+            const maxPos = getWallDoorMaxPos(door);
+            door.pos = Math.min(maxPos, Math.round(Math.max(0, Math.min(maxPos, door.pos || 0)) / 2) * 2);
+        }
+
         function getDoorDimLabel(door, suffix = '') {
             const defaultH = door.type === 'sliding' ? 2000 : 1800;
             const lines = [
                 `${Math.round(door.width)}`,
                 `×${Math.round(door.height || defaultH)}`
             ];
+            if (door.doorStyle === '루바') lines.push('(루바)');
             if (suffix) lines.push(suffix.trim());
             return lines;
         }
@@ -694,9 +1084,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         }
 
         function updateDrawing() {
-            const w = parseInt(widthIn.value) || 0; const l = parseInt(lengthIn.value) || 0; 
+            updateCanvasSize();
+            const w = parseInt(widthIn.value) || 0; const l = parseInt(lengthIn.value) || 0;
             const h = parseInt(heightIn.value) || 0; const t = parseInt(thicknessIn.value) || 100;
-            canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+            canvas.width = CANVAS_W * canvasDPR; canvas.height = CANVAS_H * canvasDPR;
+            resetViewportTransform();
+            panelLabelHitAreas = [];
             if (w <= 0 || l <= 0 || h <= 0 || t <= 0) {
                 panelSashRecords = [];
                 window.panelSashRecords = panelSashRecords;
@@ -716,7 +1109,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 if (cutDiagrams) cutDiagrams.innerHTML = '';
                 return;
             }
-            const scale = Math.min(440 / w, 340 / l);
+            const scale = getDrawScale(w, l);
             const dw = w * scale; const dl = l * scale; const dt = t * scale;
             const ox = (CANVAS_W - dw) / 2 - 20; const oy = (CANVAS_H - dl) / 2 - 15;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -834,17 +1227,23 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 return runs;
             }
 
-            function getPartitionPanelSash(run, idx, runs, totalLen) {
+            function getPartitionPanelSash(run, idx, runs, totalLen, partition) {
                 const startsAtPartitionEnd = run.segmentStart <= 0.5;
                 const endsAtPartitionEnd = run.segmentEnd >= totalLen - 0.5;
                 const reverseSegment = !startsAtPartitionEnd && endsAtPartitionEnd;
+                // 슬라이딩 도어(+/+)와 맞닿는 면은 항상 -
+                const slidingDoors = doors.filter(d => d.partitionId === partition.id && d.type === 'sliding');
+                const startFacesSliding = slidingDoors.some(d => Math.abs(d.pos + getDoorFullWidth(d) - run.start) <= gap + 1);
+                const endFacesSliding = slidingDoors.some(d => Math.abs(d.pos - (run.start + run.length)) <= gap + 1);
+                const startFixedMinus = run.start <= 0.5 || startFacesSliding;
+                const endFixedMinus = run.start + run.length >= totalLen - 0.5 || endFacesSliding;
                 let startSash = reverseSegment ? '+' : '-';
                 let endSash = reverseSegment ? '-' : '+';
-                if (run.start <= 0.5) startSash = '-';
-                if (run.start + run.length >= totalLen - 0.5) endSash = '-';
-                if (Math.round(run.length) === globalSettings.drawing.panel_width && startSash === endSash) {
-                    if (run.start <= 0.5) endSash = '+';
-                    else if (run.start + run.length >= totalLen - 0.5) startSash = '+';
+                if (startFixedMinus) startSash = '-';
+                if (endFixedMinus) endSash = '-';
+                if (Math.round(run.length) === globalSettings.drawing.panel_width && startSash === endSash && !(startFixedMinus && endFixedMinus)) {
+                    if (startFixedMinus) endSash = '+';
+                    else if (endFixedMinus) startSash = '+';
                     else {
                         startSash = reverseSegment ? '+' : '-';
                         endSash = reverseSegment ? '-' : '+';
@@ -863,11 +1262,13 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 const nextIdx = runs.findIndex(run => Math.abs(run.start - doorEnd) <= gap + 1);
                 const opposite = (v) => v === '+' ? '-' : '+';
 
-                if (prevIdx >= 0) {
-                    sash.startSash = opposite(getPartitionPanelSash(runs[prevIdx], prevIdx, runs, totalLen).endSash);
-                }
-                if (nextIdx >= 0) {
-                    sash.endSash = opposite(getPartitionPanelSash(runs[nextIdx], nextIdx, runs, totalLen).startSash);
+                if (door.type !== 'sliding') {
+                    if (prevIdx >= 0) {
+                        sash.startSash = opposite(getPartitionPanelSash(runs[prevIdx], prevIdx, runs, totalLen, partition).endSash);
+                    }
+                    if (nextIdx >= 0) {
+                        sash.endSash = opposite(getPartitionPanelSash(runs[nextIdx], nextIdx, runs, totalLen, partition).startSash);
+                    }
                 }
                 if (doorStart <= 0.5) sash.startSash = '-';
                 if (doorEnd >= totalLen - 0.5) sash.endSash = '-';
@@ -896,6 +1297,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
             // 바닥/천장 판넬 렌더링 (외경 기준)
             let fLayoutLen = 0;
+            const floorCeilBOMRows = [];
             const _getFloorRegions = () => {
                 const xs = [0, w];
                 const ys = [0, l];
@@ -978,7 +1380,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 const single = cutByColumn ? `${Math.round(panelW)}x${Math.round(panelL)}` : `${Math.round(floorDir === 'v' ? panelW : panelL)}`;
                 const lines = [];
                 ctx.save();
-                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                resetViewportTransform();
                 ctx.font = 'bold 9px sans-serif';
                 const singleW = ctx.measureText(single).width;
                 const screenBoxW = boxW * canvasZoom;
@@ -1035,6 +1437,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             region.y2 - region.y1,
                             region.y1 > 0 || region.y2 < l
                         );
+                        floorCeilBOMRows.push({
+                            width: pW,
+                            length: region.y2 - region.y1,
+                            leftSash: leftConnect ? (floorReversed ? '+' : '-') : 'corner',
+                            rightSash: rightConnect ? (floorReversed ? '-' : '+') : 'corner'
+                        });
                         fLayoutLen++;
                         curF += pW + gap;
                     });
@@ -1085,6 +1493,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             pL,
                             region.x1 > 0 || region.x2 < w
                         );
+                        floorCeilBOMRows.push({
+                            width: pL,
+                            length: region.x2 - region.x1,
+                            leftSash: topConnect ? (floorReversed ? '+' : '-') : 'corner',
+                            rightSash: bottomConnect ? (floorReversed ? '-' : '+') : 'corner'
+                        });
                         fLayoutLen++;
                         curF += pL + gap;
                     });
@@ -1134,6 +1548,16 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 const _pushPanelSpan = (spanLen, align, startSash, endSash) => {
                     const layout = getLayout(spanLen, align);
                     const segmentId = `${wallIdx}-${_wallSegmentSeq++}`;
+                    // 사용자 입력 폭 오버라이드 적용 (판넬 수·합계 일치 시에만)
+                    const _ov = panelWidthOverrides[segmentId];
+                    if (_ov) {
+                        const _sum = arr => arr.reduce((a, b) => a + b, 0);
+                        if (_ov.widths.length === layout.length && Math.abs(_sum(_ov.widths) - _sum(layout)) < 1) {
+                            for (let i = 0; i < layout.length; i++) layout[i] = _ov.widths[i];
+                        } else {
+                            delete panelWidthOverrides[segmentId];
+                        }
+                    }
                     layout.forEach((p, panelIdx) => mmLayout.push({
                         w: p,
                         isD: false,
@@ -1148,6 +1572,8 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
                 let mmLayout = []; let cur = 0;
                 allBlocked.forEach(function(item, bIdx) {
+                    // 앞 구간(도어 등)에 완전히 가려진 기둥 칸은 건너뜀
+                    if (item.type === 'column' && item.end <= cur) return;
                     const prevBlocked = allBlocked[bIdx - 1];
                     if (item.start > cur) {
                         const prevIsSliding = prevBlocked && prevBlocked.type === 'door' && prevBlocked.door.type === 'sliding';
@@ -1167,8 +1593,10 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             spanEndsAtCorner ? 'corner' : null
                         );
                     }
+                    // 구간이 겹쳐도 cur가 뒤로 가지 않도록 (다음 판넬 구간은 겹친 구간 끝에서 시작)
+                    const resumeAt = Math.max(cur, item.end);
                     if (item.type === 'door') {
-                        mmLayout.push({w: item.end - item.start, isD: true, isC: false, door: item.door, margin: item.margin});
+                        mmLayout.push({w: item.end - item.start, isD: true, isC: false, door: item.door, margin: item.margin, start: item.start, resumeAt});
                     } else {
                         // 기둥이 차지하는 gap — 판넬도 도어도 없이 공간만 비움
                         // blockEnd: 실제 블록 끝 위치(local mm) → drawX를 정확히 이 위치로 점프
@@ -1176,12 +1604,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             w: item.end - item.start,
                             isD: false,
                             isC: true,
-                            blockEnd: item.end,
+                            blockEnd: resumeAt,
                             startWallCornerOwned: !!item.startWallCornerOwned,
                             endWallCornerOwned: !!item.endWallCornerOwned
                         });
                     }
-                    cur = item.end;
+                    cur = resumeAt;
                 });
                 if (cur < wallLen) {
                     const prevBlocked = allBlocked[allBlocked.length - 1];
@@ -1208,7 +1636,9 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     (wallIdx === 0 && cornerConfig.BL === 'h');
                 let _suppressStartCorner = false;
                 let _layoutReversed = false;
-                if (_startCornerOn && _firstIsPanel) {
+                // 도어·기둥 칸이 있는 벽은 뒤집으면 위치가 거울상으로 이동하므로 제외
+                const _hasBlockedItem = mmLayout.some(item => item.isD || item.isC);
+                if (_startCornerOn && _firstIsPanel && !_hasBlockedItem) {
                     const _ndPanels = mmLayout.filter(p => !p.isD && !p.isC);
                     const _fp = _ndPanels[0];
                     if (_fp && Math.round(_fp.w) === _pMax && _ndPanels.length > 1) {
@@ -1261,6 +1691,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     const nextItem = mmLayout[idx + 1];
                     const prevItem = mmLayout[idx - 1];
                     const rightFacesSlidingDoor = nextItem && nextItem.isD && nextItem.door && nextItem.door.type === 'sliding';
+                    const leftFacesSlidingDoor = prevItem && prevItem.isD && prevItem.door && prevItem.door.type === 'sliding';
                     const rightFacesColumn = nextItem && nextItem.isC;
                     const leftFacesColumn  = prevItem && prevItem.isC;
                     const isStartCornerPanel = idx === _firstNonGapIdx && _startCornerOwned && !_suppressStartCorner;
@@ -1286,9 +1717,11 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     if (rightOwnsColumnCorner) rightPlus = false;
                     if (leftNeighborNeedsPlus) leftPlus = true;
                     if (rightNeighborNeedsPlus) rightPlus = true;
-                    if (rightFacesSlidingDoor && !rightNeighborNeedsPlus && !isEndCornerPanel) rightPlus = false;
                     if (segmentStartsAtMate && item.segmentPanelIdx === 0) leftPlus = true;
                     if (segmentEndsAtMate && item.segmentPanelIdx === item.segmentPanelCount - 1) rightPlus = true;
+                    // 슬라이딩 도어(+/+)와 맞닿는 면은 항상 -
+                    if (leftFacesSlidingDoor) leftPlus = false;
+                    if (rightFacesSlidingDoor) rightPlus = false;
 
                     let leftSash = (isStartCornerPanel || leftOwnsColumnCorner) ? 'corner' : (leftPlus ? '+' : '-');
                     let rightSash = (isEndCornerPanel || rightOwnsColumnCorner) ? 'corner' : (rightPlus ? '+' : '-');
@@ -1297,9 +1730,16 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                         Math.round(displayW) === _pMax &&
                         leftSash !== 'corner' &&
                         rightSash !== 'corner' &&
-                        leftSash === rightSash
+                        leftSash === rightSash &&
+                        !(leftFacesSlidingDoor && rightFacesSlidingDoor)
                     ) {
-                        if (runReversed) {
+                        if (leftFacesSlidingDoor) {
+                            leftSash = '-';
+                            rightSash = '+';
+                        } else if (rightFacesSlidingDoor) {
+                            leftSash = '+';
+                            rightSash = '-';
+                        } else if (runReversed) {
                             leftSash = '+';
                             rightSash = '-';
                         } else {
@@ -1318,18 +1758,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     const sash = getDoorSashState(door);
                     const prevSash = panelSashByIdx[idx - 1];
                     const nextSash = panelSashByIdx[idx + 1];
-                    if (prevSash && prevSash.rightSash !== 'corner') sash.startSash = _oppositeSash(prevSash.rightSash);
-                    if (nextSash && nextSash.leftSash !== 'corner') sash.endSash = _oppositeSash(nextSash.leftSash);
+                    if (door.type !== 'sliding') {
+                        if (prevSash && prevSash.rightSash !== 'corner') sash.startSash = _oppositeSash(prevSash.rightSash);
+                        if (nextSash && nextSash.leftSash !== 'corner') sash.endSash = _oppositeSash(nextSash.leftSash);
+                    }
                     if (idx === _firstNonGapIdx && _wallStartCornerOwned) sash.startSash = 'corner';
                     if (idx === _lastNonGapIdx && _wallEndCornerOwned) sash.endSash = 'corner';
-                    if (sash.startSash === 'corner') {
-                        const nextPanel = panelSashByIdx[idx + 1];
-                        if (nextPanel && nextPanel.leftSash === '-') sash.endSash = '-';
-                    }
-                    if (sash.endSash === 'corner') {
-                        const prevPanel = panelSashByIdx[idx - 1];
-                        if (prevPanel && prevPanel.rightSash === '-') sash.startSash = '-';
-                    }
                     return sash;
                 };
 
@@ -1341,6 +1775,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     const nextItem = mmLayout[idx + 1];
 
                     if (p.isD) {
+                        if (p.start !== undefined) drawX = p.start;
                         const dW = p.door.width * scale;
                         const dStart = (drawX + p.margin) * scale;
                         const strokeColor = selectedId === p.door.id ? '#f59e0b' : '#1e293b';
@@ -1480,7 +1915,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                                 ..._doorSashForLayout(idx, p.door)
                             });
                         }
-                        drawX += p.w;
+                        drawX = p.resumeAt !== undefined ? p.resumeAt : drawX + p.w;
                     } else {
                         const px = drawX * scale;
                         const pw = displayW * scale;
@@ -1532,12 +1967,26 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                             sy: oy_w + localCx * sin + labelLocalY * cos,
                             text: `${Math.round(displayW)}`
                         });
+                        // 같은 세그먼트에 판넬이 2장 이상일 때만 편집 가능 (다른 판넬이 차이를 흡수해야 함)
+                        if (p.segmentPanelCount >= 2) {
+                            const _sp = mmLayout.filter(item => !item.isD && !item.isC && item.segmentId === p.segmentId);
+                            panelLabelHitAreas.push({
+                                type: 'wallpanel',
+                                mx: ox_w + localCx * cos - labelLocalY * sin,
+                                my: oy_w + localCx * sin + labelLocalY * cos,
+                                value: Math.round(displayW),
+                                segmentId: p.segmentId,
+                                segIdx: p.segmentPanelIdx,
+                                segWidths: _sp.map(item => item.w)
+                            });
+                        }
 
                         // 다음이 판넬·기둥gap이면 gap 추가, 도어·끝이면 추가 안 함
                         panelSashRecords.push({
                             type: 'wall',
                             wallIdx,
                             length: Math.round(displayW),
+                            panelHeight: Math.round(h - t - (hasFloor ? t : 0)),
                             start: Math.round(drawX),
                             end: Math.round(drawX + displayW),
                             leftSash,
@@ -1651,6 +2100,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const rightWallY   = TR_v ? oy : oy + dt + gap * scale;
             const rightWallLen = l - (TR_v ? 0 : t + gap) - (BR_v ? 0 : t + gap);
 
+            doors.forEach(clampDoorToWall);
             drawWall(botWallX, oy + dl - dt, botWallLen,  0,           0,  1, getColumnBlockedIntervals(0));
             drawWall(topWallX, oy,           topWallLen,  0,           2, -1, getColumnBlockedIntervals(2));
             drawWall(ox + dt,  leftWallY,    leftWallLen,  Math.PI / 2, 3,  1, getColumnBlockedIntervals(3));
@@ -1658,6 +2108,8 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
             // 칸막이 렌더링 및 수량 합산
             let partitionPanelCount = 0;
+            const partitionBOMRows = [];
+            const _partitionPanelH = Math.round(h - t - (hasFloor ? t : 0));
             partitions.forEach(p => {
                 const pDir = p.dir || 'v';
                 const pT = (p.thickness || 100) * scale;
@@ -1672,7 +2124,8 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
                 pLayout.forEach((pRun, pIdx) => {
                     const pLen = pRun.length;
-                    const pSash = getPartitionPanelSash(pRun, pIdx, pLayout, partitionTotalLen);
+                    const pSash = getPartitionPanelSash(pRun, pIdx, pLayout, partitionTotalLen, p);
+                    partitionBOMRows.push({ width: Math.round(pLen), height: _partitionPanelH, leftSash: pSash.startSash, rightSash: pSash.endSash });
                     let rx, ry, rw, rh;
                     if (pDir === 'v') {
                         rx = ox + dt + p.pos * scale; // 기준점을 중앙(-pT/2)에서 시작 모서리로 변경
@@ -2296,7 +2749,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const dimOffset = 44;
             // 가로 치수 (하단)
             ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            resetViewportTransform();
             const sx1 = toViewportX(ox);
             const sx2 = toViewportX(ox + dw);
             const sy1 = toViewportY(oy);
@@ -2317,6 +2770,8 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             ctx.textAlign = 'center'; ctx.textBaseline = 'top';
             ctx.fillText(`L = ${l.toLocaleString()} mm`, 0, 0);
             ctx.restore();
+            panelLabelHitAreas.push({ type: 'dim', useRaw: true, rx: (sx1 + sx2) / 2, ry: dimY + 3, value: w, dimType: 'W' });
+            panelLabelHitAreas.push({ type: 'dim', useRaw: true, rx: dimX + 4, ry: (sy1 + sy2) / 2, value: l, dimType: 'L' });
 
             columns.forEach(col => {
                 const cx = ox + col.x * scale;
@@ -2352,8 +2807,168 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
             // hasFloor: 바닥+천장(×2), 없으면 천장만(×1)
             const floorBOMCount = hasFloor ? fLayoutLen * 2 : fLayoutLen;
-            document.getElementById('mainCount').innerText = (wallPanelCount + floorBOMCount + partitionPanelCount) + ' 장';
+            // 기둥 감싸기 판넬 → 벽체 BOM 행 (판넬 최대폭 초과 시 분할, 양 끝 조각이 원래 샷시 유지)
+            const _wallPanelH = Math.round(h - t - (hasFloor ? t : 0));
+            const columnWrapRecords = [];
+            panelSashRecords.filter(r => r.type === 'column-wrap' && r.length > 0).forEach(r => {
+                const pieces = r.length > globalSettings.drawing.panel_width ? getLayout(r.length, 'center') : [r.length];
+                pieces.forEach((len, i) => columnWrapRecords.push({
+                    length: Math.round(len),
+                    panelHeight: _wallPanelH,
+                    leftSash: i === 0 ? r.startSash : '-',
+                    rightSash: i === pieces.length - 1 ? r.endSash : '+'
+                }));
+            });
+            const columnWrapAreaM2 = columnWrapRecords.reduce((sum, r) => sum + r.length * _wallPanelH, 0) / 1000000;
+            renderDetailedBOM({
+                floorRows: floorCeilBOMRows,
+                wallRecords: panelSashRecords.filter(r => r.type === 'wall').concat(columnWrapRecords),
+                partitionRows: partitionBOMRows,
+                hasFloor,
+                totalAreaM2: totalAreaM2 + columnWrapAreaM2,
+                totalCount: wallPanelCount + floorBOMCount + partitionPanelCount + columnWrapRecords.length
+            });
         }
+        function renderDetailedBOM({ floorRows, wallRecords, partitionRows, hasFloor, totalAreaM2, totalCount }) {
+            document.getElementById('mainStat').innerText = totalAreaM2.toFixed(2) + ' m²';
+            document.getElementById('mainCount').innerText = totalCount + ' 장';
+            const pMax = globalSettings.drawing.panel_width;
+
+            function toSashChar(s) {
+                if (s === 'corner') return 'C';
+                return s === '+' ? '+' : '-';
+            }
+            function getPanelType(w, ls, rs) {
+                if (ls === 'corner' || rs === 'corner') return '코너';
+                if (Math.round(w) === pMax) return '원장';
+                return '쪽판';
+            }
+            function groupRows(rows) {
+                const map = new Map();
+                rows.forEach(r => {
+                    const ls = r.leftSash || '-', rs = r.rightSash || '-';
+                    const type = getPanelType(r.width, ls, rs);
+                    const size = `${Math.round(r.width)}*${Math.round(r.height || r.length)}`;
+                    const sash = `${toSashChar(ls)}/${toSashChar(rs)}`;
+                    const key = `${type}|${size}|${sash}`;
+                    if (!map.has(key)) map.set(key, { type, size, sash, count: 0 });
+                    map.get(key).count++;
+                });
+                const order = { '원장': 0, '쪽판': 1, '코너': 2 };
+                return [...map.values()].sort((a, b) => (order[a.type] ?? 3) - (order[b.type] ?? 3) || a.size.localeCompare(b.size));
+            }
+            function makeTable(title, rows) {
+                if (!rows.length) return '';
+                const HDR = `<tr style="background:#f1f5f9">
+                    <th style="padding:3px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700">판넬</th>
+                    <th style="padding:3px 8px;text-align:right;font-size:10px;color:#64748b;font-weight:700">크기</th>
+                    <th style="padding:3px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700">샷시</th>
+                    <th style="padding:3px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700">수량</th>
+                </tr>`;
+                const tbody = rows.map((r, i) =>
+                    `<tr style="background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;color:#475569">${r.type}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#334155">${r.size}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:center;font-family:monospace;color:#334155">${r.sash}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:900;color:#1e293b">${r.count}</td>
+                    </tr>`
+                ).join('');
+                return `<table style="font-size:11px;border-collapse:collapse;white-space:nowrap">
+                    <thead>
+                        <tr><th colspan="4" style="padding:0 8px 4px;text-align:left;font-size:11px;font-weight:900;color:#334155;border-bottom:2px solid #1e293b">${title}</th></tr>
+                        ${HDR}
+                    </thead>
+                    <tbody>${tbody}</tbody>
+                </table>`;
+            }
+
+            const floorAllRows = hasFloor ? [...floorRows, ...floorRows] : floorRows;
+            const floorGrouped = groupRows(floorAllRows);
+            const wallGrouped = groupRows(wallRecords.map(r => ({
+                width: r.length, height: r.panelHeight || 0,
+                leftSash: r.leftSash, rightSash: r.rightSash
+            })));
+            const partGrouped = groupRows(partitionRows);
+
+            // 도어 테이블
+            const doorRecords = panelSashRecords.filter(r => r.type === 'wall-door' || r.type === 'partition-door');
+            const doorMap = new Map();
+            doorRecords.forEach(r => {
+                const door = doors.find(d => d.id === r.doorId);
+                if (!door) return;
+                const typeName = door.type === 'overlap' ? '오버랩도어' : '슬라이딩도어';
+                const detail = door.type === 'overlap' ? (door.doorStyle || '일반') : (door.operation || '수동');
+                const dir = door.direction || '좌';
+                const defaultH = door.type === 'sliding' ? 2000 : 1800;
+                const size = `${Math.round(door.width)}*${Math.round(door.height || defaultH)}`;
+                const sash = `${toSashChar(r.startSash)}/${toSashChar(r.endSash)}`;
+                const key = `${typeName}|${detail}|${dir}|${size}|${sash}`;
+                if (!doorMap.has(key)) doorMap.set(key, { typeName, detail, dir, size, sash, count: 0 });
+                doorMap.get(key).count++;
+            });
+            const doorGrouped = [...doorMap.values()];
+            const doorHtml = doorGrouped.length ? (() => {
+                const HDR2 = `<tr style="background:#f1f5f9">
+                    <th style="padding:3px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700">도어</th>
+                    <th style="padding:3px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700">세부</th>
+                    <th style="padding:3px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700">방향</th>
+                    <th style="padding:3px 8px;text-align:right;font-size:10px;color:#64748b;font-weight:700">크기</th>
+                    <th style="padding:3px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700">샷시</th>
+                    <th style="padding:3px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700">수량</th>
+                </tr>`;
+                const tbody2 = doorGrouped.map((r, i) =>
+                    `<tr style="background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;color:#475569">${r.typeName}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;color:#475569">${r.detail}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:#334155">${r.dir}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#334155">${r.size}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:center;font-family:monospace;color:#334155">${r.sash}</td>
+                        <td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:900;color:#1e293b">${r.count}</td>
+                    </tr>`
+                ).join('');
+                return `<table style="font-size:11px;border-collapse:collapse;white-space:nowrap">
+                    <thead>
+                        <tr><th colspan="6" style="padding:0 8px 4px;text-align:left;font-size:11px;font-weight:900;color:#334155;border-bottom:2px solid #1e293b">도어</th></tr>
+                        ${HDR2}
+                    </thead>
+                    <tbody>${tbody2}</tbody>
+                </table>`;
+            })() : '';
+            document.getElementById('bom-door-section').innerHTML = doorHtml;
+
+            document.getElementById('bom-floor-section').innerHTML = makeTable('천장/바닥', floorGrouped);
+            document.getElementById('bom-wall-section').innerHTML = makeTable('벽체', wallGrouped);
+            document.getElementById('bom-partition-section').innerHTML = makeTable('칸막이', partGrouped);
+
+            // 견적으로 넘기기 위해 집계 결과를 보관한다. 지금까지는 표로 그린 뒤
+            // 버려서, 견적서에 보낼 수 있는 것이 innerText 문자열뿐이었다.
+            lastBOM = {
+                floor: floorGrouped, wall: wallGrouped, partition: partGrouped,
+                door: doorGrouped, totalAreaM2, totalCount,
+            };
+        }
+
+        /** 최근 계산된 BOM 집계. renderDetailedBOM 이 채운다. */
+        let lastBOM = null;
+
+        /** 견적 품목 배열로 바꾼다. { name, spec, unit, qty } — SaaS 의 order_items 형태 */
+        function bomToItems() {
+            if (!lastBOM) return [];
+            const items = [];
+            const push = (name, spec, unit, qty) => {
+                if (!qty) return;
+                items.push({ name, spec, unit, qty });
+            };
+            const panelGroup = (rows, where) => rows.forEach(r =>
+                push(`우레탄판넬 (${where}/${r.type})`, `${r.size} 샷시 ${r.sash}`, '장', r.count));
+            panelGroup(lastBOM.floor, '천장·바닥');
+            panelGroup(lastBOM.wall, '벽체');
+            panelGroup(lastBOM.partition, '칸막이');
+            lastBOM.door.forEach(d =>
+                push(`${d.typeName} (${d.detail})`, `${d.size} ${d.dir} 샷시 ${d.sash}`, '개', d.count));
+            return items;
+        }
+
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -2362,40 +2977,79 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
         let pinchDistance = null;
         let touchPanStart = null;
+        let touchSingleStart = null;
+        let touchMoved = false;
+
         function getTouchDistance(touches) {
             const dx = touches[0].clientX - touches[1].clientX;
             const dy = touches[0].clientY - touches[1].clientY;
             return Math.sqrt(dx * dx + dy * dy);
         }
+
+        // 한 손가락: 오브젝트 선택/드래그 / 두 손가락: 이동+확대축소
         canvas.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 2) {
-                e.preventDefault();
+            e.preventDefault();
+            if (e.touches.length >= 2) {
+                // 진행 중인 단일 터치 드래그 종료
+                if (touchSingleStart && isDragging) {
+                    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                }
+                touchSingleStart = null;
                 pinchDistance = getTouchDistance(e.touches);
-                touchPanStart = null;
-            } else if (e.touches.length === 1) {
-                e.preventDefault();
                 touchPanStart = {
-                    x: e.touches[0].clientX,
-                    y: e.touches[0].clientY,
-                    panX: canvasPanX,
-                    panY: canvasPanY
+                    x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                    y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+                    panX: canvasPanX, panY: canvasPanY
                 };
+            } else if (e.touches.length === 1) {
+                pinchDistance = null;
+                touchPanStart = null;
+                const t = e.touches[0];
+                touchSingleStart = { x: t.clientX, y: t.clientY };
+                touchMoved = false;
+                // mousedown 시뮬레이션으로 오브젝트 히트테스트 + 드래그 준비
+                canvas.dispatchEvent(new MouseEvent('mousedown', {
+                    clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true
+                }));
+                // 오브젝트를 누르지 않았으면 패닝 방지
+                if (!dragTarget) { isPanning = false; panStart = null; }
             }
         }, { passive: false });
+
         canvas.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 2 && pinchDistance) {
-                e.preventDefault();
-                const nextDistance = getTouchDistance(e.touches);
-                setCanvasZoom(canvasZoom * (nextDistance / pinchDistance));
-                pinchDistance = nextDistance;
-            } else if (e.touches.length === 1 && touchPanStart) {
-                e.preventDefault();
-                canvasPanX = touchPanStart.panX + e.touches[0].clientX - touchPanStart.x;
-                canvasPanY = touchPanStart.panY + e.touches[0].clientY - touchPanStart.y;
-                updateDrawing();
+            e.preventDefault();
+            if (e.touches.length >= 2 && pinchDistance !== null) {
+                // 두 손가락: 중심점 이동 + 핀치 줌
+                const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                if (touchPanStart) {
+                    canvasPanX = touchPanStart.panX + cx - touchPanStart.x;
+                    canvasPanY = touchPanStart.panY + cy - touchPanStart.y;
+                }
+                const nextDist = getTouchDistance(e.touches);
+                setCanvasZoom(canvasZoom * (nextDist / pinchDistance));
+                pinchDistance = nextDist;
+                touchPanStart = { x: cx, y: cy, panX: canvasPanX, panY: canvasPanY };
+            } else if (e.touches.length === 1 && touchSingleStart) {
+                const t = e.touches[0];
+                const dx = t.clientX - touchSingleStart.x;
+                const dy = t.clientY - touchSingleStart.y;
+                if (Math.sqrt(dx * dx + dy * dy) > 6) touchMoved = true;
+                // 오브젝트 드래그 중일 때만 mousemove 시뮬레이션
+                if (isDragging && dragTarget) {
+                    canvas.dispatchEvent(new MouseEvent('mousemove', {
+                        clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true
+                    }));
+                }
             }
         }, { passive: false });
-        canvas.addEventListener('touchend', () => {
+
+        canvas.addEventListener('touchend', (e) => {
+            if (touchSingleStart) {
+                window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            }
+            touchSingleStart = null;
+            touchMoved = false;
             pinchDistance = null;
             touchPanStart = null;
         });
@@ -2404,9 +3058,25 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const rawPoint = getCanvasRawPoint(e);
             const { mx, my } = getCanvasPointerPoint(e);
             const w = parseInt(widthIn.value); const l = parseInt(lengthIn.value); const t = parseInt(thicknessIn.value);
-            const scale = Math.min(440 / w, 340 / l);
+            const scale = getDrawScale(w, l);
             const dw = w * scale; const dl = l * scale; const dt = t * scale;
             const ox = (CANVAS_W - dw) / 2 - 20; const oy = (CANVAS_H - dl) / 2 - 15;
+
+            // ── 판넬 라벨 클릭 (저장고 모드) ────────────────────────────
+            if (currentMode === 'storage') {
+                for (const area of panelLabelHitAreas) {
+                    let hit = false;
+                    if (area.useRaw) {
+                        const dx = rawPoint.x - area.rx, dy = rawPoint.y - area.ry;
+                        hit = Math.sqrt(dx * dx + dy * dy) <= 18;
+                    } else {
+                        const dx = mx - area.mx, dy = my - area.my;
+                        hit = Math.sqrt(dx * dx + dy * dy) <= 16 / canvasZoom;
+                    }
+                    // preventDefault: mousedown 기본 포커스 이동이 input을 즉시 blur시키는 것 방지
+                    if (hit) { e.preventDefault(); showPanelLabelEditor(e, area); return; }
+                }
+            }
 
             // ── 코너 클릭 감지 (저장고 모드 전용) ──────────────────────
             if (currentMode === 'storage') {
@@ -2482,10 +3152,13 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                         dx = ox + dt + pCenter * scale;
                         dy = oy + dt + partition.pos * scale + pT / 2;
                     }
-                } else if(door.wallIndex===0){ dx=ox+(pCenter*scale); dy=oy+dl-dt/2; }
-                else if(door.wallIndex===1){ dx=ox+dw-dt/2; dy=oy+dt+(pCenter*scale); }
-                else if(door.wallIndex===2){ dx=ox+(pCenter*scale); dy=oy+dt/2; }
-                else { dx=ox+dt/2; dy=oy+dt+(pCenter*scale); }
+                } else {
+                    const wallStart = getWallSpan(door.wallIndex).start;
+                    if(door.wallIndex===0){ dx=ox+(wallStart+pCenter)*scale; dy=oy+dl-dt/2; }
+                    else if(door.wallIndex===1){ dx=ox+dw-dt/2; dy=oy+(wallStart+pCenter)*scale; }
+                    else if(door.wallIndex===2){ dx=ox+(wallStart+pCenter)*scale; dy=oy+dt/2; }
+                    else { dx=ox+dt/2; dy=oy+(wallStart+pCenter)*scale; }
+                }
                 if(Math.sqrt((mx-dx)**2+(my-dy)**2)<50){ selectedId=door.id; dragTarget={type: partition ? 'partition-door' : 'door',obj:door}; isDragging=true; }
             });
             drains.forEach(d => {
@@ -2540,7 +3213,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             // ── 코너 호버 커서 (드래그 없을 때, 저장고 모드) ──────────
             if (currentMode === 'storage' && (!isDragging || !dragTarget)) {
                 const w_c = parseInt(widthIn.value), l_c = parseInt(lengthIn.value), t_c = parseInt(thicknessIn.value);
-                const sc_c = Math.min(440 / w_c, 340 / l_c);
+                const sc_c = getDrawScale(w_c, l_c);
                 const dt_c = t_c * sc_c, dw_c = w_c * sc_c, dl_c = l_c * sc_c;
                 const ox_c = (CANVAS_W - dw_c) / 2 - 20, oy_c = (CANVAS_H - dl_c) / 2 - 15;
                 const cr = Math.max(10, dt_c * 0.32) + 4;
@@ -2553,12 +3226,21 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                     !isRoomCornerLockedByColumn(c.name, w_c, l_c) &&
                     Math.sqrt((mx - c.cx) ** 2 + (my - c.cy) ** 2) < cr
                 );
-                canvas.style.cursor = over ? 'pointer' : 'grab';
+                const rawPoint_m = getCanvasRawPoint(e);
+                const labelHover = panelLabelHitAreas.some(area => {
+                    if (area.useRaw) {
+                        const dx = rawPoint_m.x - area.rx, dy = rawPoint_m.y - area.ry;
+                        return Math.sqrt(dx * dx + dy * dy) <= 18;
+                    }
+                    const dx = mx - area.mx, dy = my - area.my;
+                    return Math.sqrt(dx * dx + dy * dy) <= 16 / canvasZoom;
+                });
+                canvas.style.cursor = (over || labelHover) ? 'pointer' : 'grab';
             }
             // ─────────────────────────────────────────────────────────────
             if(!isDragging || !dragTarget) return;
             const w = parseInt(widthIn.value); const l = parseInt(lengthIn.value); const t = parseInt(thicknessIn.value);
-            const scale = Math.min(440 / w, 340 / l);
+            const scale = getDrawScale(w, l);
             const ox = (CANVAS_W - (w*scale))/2 - 20; const oy = (CANVAS_H - (l*scale))/2 - 15;
             const curX = (mx - ox) / scale; const curY = (my - oy) / scale;
 
@@ -2566,11 +3248,11 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 const door = dragTarget.obj;
                 const ds = [Math.abs(my-(oy+(l*scale)-(t*scale/2))), Math.abs(mx-(ox+(w*scale)-(t*scale/2))), Math.abs(my-(oy+t*scale/2)), Math.abs(mx-(ox+t*scale/2))];
                 const min = Math.min(...ds); if(min<50) door.wallIndex = ds.indexOf(min);
-                // 벽0·2: x좌표, 벽1·3: y좌표 (내벽 기준)
-                let np; if(door.wallIndex===0) np=curX; else if(door.wallIndex===1) np=curY-t;
-                else if(door.wallIndex===2) np=curX; else np=curY-t;
-                const doorW = door.width + (door.type==='sliding'?0:300);
-                door.pos = Math.round(Math.max(0, Math.min(((door.wallIndex%2===0)?w:l-t*2)-doorW-4, np)) / 2) * 2;
+                // 벽0·2: x좌표, 벽1·3: y좌표 (벽 판넬 구간 시작점 기준)
+                const wallStart = getWallSpan(door.wallIndex).start;
+                const np = (door.wallIndex % 2 === 0 ? curX : curY) - wallStart;
+                door.pos = np;
+                clampDoorToWall(door);
                 updateSelectionPanel(); // 실시간 위치값 업데이트
             }
             if(dragTarget.type==='partition-door'){
@@ -2710,10 +3392,9 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             if (door) {
                 const doorW = getDoorFullWidth(door);
                 const doorPartition = getPartitionByDoor(door);
-                const wallLen = doorPartition
-                    ? getPartitionSpanLength(doorPartition)
-                    : ((door.wallIndex % 2 === 0) ? w : l - t * 2);
-                const maxPos = wallLen - doorW - 4;
+                const maxPos = doorPartition
+                    ? getPartitionSpanLength(doorPartition) - doorW - 4
+                    : getWallDoorMaxPos(door);
                 // 수평 벽(0·2): 좌우키 / 수직 벽(1·3): 상하키
                 const isHoriz = doorPartition
                     ? ((doorPartition.dir || 'v') === 'h')
@@ -2814,7 +3495,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 const id = door.id;
                 const positionOninput = doorPartition
                     ? `const d=doors.find(dr=>dr.id==${id});const p=partitions.find(pt=>pt.id==d.partitionId);const len=(p.dir||'v')==='v'?parseInt(document.getElementById('length').value)-parseInt(document.getElementById('thickness').value)*2:parseInt(document.getElementById('width').value)-parseInt(document.getElementById('thickness').value)*2;const dw=d.width+(d.type==='sliding'?0:300);d.pos=Math.round(Math.max(0,Math.min(len-dw-4,parseInt(this.value)||0))/2)*2;updateDrawing();`
-                    : `const d=doors.find(dr=>dr.id==${id});const wl=d.wallIndex%2===0?parseInt(document.getElementById('width').value):parseInt(document.getElementById('length').value)-parseInt(document.getElementById('thickness').value)*2;const dw=d.width+(d.type==='sliding'?0:300);const v=parseInt(this.value)||0;const raw=v===0?0:Math.max(0,v-4);d.pos=Math.round(Math.max(0,Math.min(wl-dw-4,raw))/2)*2;updateDrawing();`;
+                    : `const d=doors.find(dr=>dr.id==${id});const v=parseInt(this.value)||0;d.pos=v===0?0:Math.max(0,v-4);clampDoorToWall(d);updateDrawing();`;
 
                 const posG = `<div class="flex items-center gap-1 shrink-0">
                     <span class="text-[10px] font-black text-slate-400">위치</span>
@@ -2829,7 +3510,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
                 const hG = `<div class="flex items-center gap-1 shrink-0">
                     <span class="text-[10px] font-black text-slate-400">높이</span>
-                    <input type="number" value="${door.height}" oninput="const d=doors.find(dr=>dr.id==${id}); d.height=parseInt(this.value)||1800;" class="w-14 bg-white border rounded-lg px-1.5 py-0.5 font-bold text-xs outline-none">
+                    <input type="number" value="${door.height}" oninput="const d=doors.find(dr=>dr.id==${id}); d.height=parseInt(this.value)||1800; updateDrawing();" class="w-14 bg-white border rounded-lg px-1.5 py-0.5 font-bold text-xs outline-none">
                 </div>`;
 
                 const sel = (on) => on ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200';
@@ -2848,7 +3529,13 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                         <button onclick="const d=doors.find(dr=>dr.id==${id}); d.openDir='안'; updateDrawing(); updateSelectionPanel();" class="px-2 py-0.5 rounded-lg text-[11px] font-black border ${sel(door.openDir === '안')}">안</button>
                     </div>`;
 
-                    div.innerHTML = posG + wG + hG + dirG + openG;
+                    const styleG = `<div class="flex items-center gap-1 shrink-0">
+                        <span class="text-[10px] font-black text-slate-400">타입</span>
+                        <button onclick="const d=doors.find(dr=>dr.id==${id}); d.doorStyle='일반'; updateDrawing(); updateSelectionPanel();" class="px-2 py-0.5 rounded-lg text-[11px] font-black border ${sel(door.doorStyle !== '루바')}">일반</button>
+                        <button onclick="const d=doors.find(dr=>dr.id==${id}); d.doorStyle='루바'; updateDrawing(); updateSelectionPanel();" class="px-2 py-0.5 rounded-lg text-[11px] font-black border ${sel(door.doorStyle === '루바')}">루바</button>
+                    </div>`;
+
+                    div.innerHTML = posG + wG + hG + dirG + openG + styleG;
                 } else {
                     const dirG = `<div class="flex items-center gap-1 shrink-0">
                         <span class="text-[10px] font-black text-slate-400">방향</span>
@@ -3003,11 +3690,8 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             const pGap = globalSettings.drawing.panel_gap;
             const sideMargin = type === 'sliding' ? 0 : 150;
             const doorFullW = width + sideMargin * 2;
-            const w = parseInt(widthIn.value) || 3000;
-            const l = parseInt(lengthIn.value) || 3000;
-            const t = parseInt(thicknessIn.value) || 100;
-            // 벽별 도어 배치 가능 최대 길이 (pos 기준)
-            const wallMax = [w, l - t * 2, w, l - t * 2];
+            // 벽별 도어 배치 가능 최대 길이 (pos 기준, 끝 조인트 gap 포함)
+            const wallMax = [0, 1, 2, 3].map(i => getWallSpan(i).length - pGap);
 
             function overlapsAny(wallIdx, pos) {
                 return doors.filter(d => d.wallIndex === wallIdx).some(d => {
@@ -3171,7 +3855,15 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         function sendBOMToParent() {
             const isApplyMode = new URLSearchParams(window.location.search).get('mode') === 'apply';
             const specs = { width: parseInt(widthIn.value), length: parseInt(lengthIn.value), height: parseInt(heightIn.value) };
-            const bom = { countText: document.getElementById('mainCount').innerText, statText: document.getElementById('mainStat').innerText };
+            // 받는 쪽(SaaS 견적)은 { name, spec, unit, qty } 배열을 기대한다.
+            // 기존 countText/statText 도 요약 표시용으로 함께 보낸다.
+            const bom = {
+                countText: document.getElementById('mainCount').innerText,
+                statText:  document.getElementById('mainStat').innerText,
+                items:     bomToItems(),
+                totalAreaM2: lastBOM ? lastBOM.totalAreaM2 : 0,
+                totalCount:  lastBOM ? lastBOM.totalCount  : 0,
+            };
             
             if (isApplyMode) {
                 // 자동 이름 생성 → 저장 → 견적서로 복귀
@@ -3241,14 +3933,19 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                 floorReversed: floorReversed,
                 pipeW: parseInt(document.getElementById('pipeW').value) || 50,
                 pipeH: parseInt(document.getElementById('pipeH').value) || 50,
-                pipeGap: parseInt(document.getElementById('pipeGap').value) || 700,
+                pipeGap: parseInt(document.getElementById('pipeGap').value) || 800,
+                braceGap: parseInt(document.getElementById('braceGap').value) || 3000,
                 sheetW: parseInt(document.getElementById('sheetW').value) || 1219,
                 sheetL: parseInt(document.getElementById('sheetL').value) || 2438,
                 cornerConfig: JSON.parse(JSON.stringify(cornerConfig)),
+                panelWidthOverrides: JSON.parse(JSON.stringify(panelWidthOverrides)),
                 doors: JSON.parse(JSON.stringify(doors)),
                 partitions: JSON.parse(JSON.stringify(partitions)),
                 drains: JSON.parse(JSON.stringify(drains)),
-                columns: JSON.parse(JSON.stringify(columns))
+                columns: JSON.parse(JSON.stringify(columns)),
+                memo: document.getElementById('memo-text').value,
+                machines: JSON.parse(JSON.stringify(machines)),
+                photos: JSON.parse(JSON.stringify(photos))
             };
         }
 
@@ -3296,12 +3993,15 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
 
             document.getElementById('pipeW').value = state.pipeW || 50;
             document.getElementById('pipeH').value = state.pipeH || 50;
-            document.getElementById('pipeGap').value = state.pipeGap || 700;
-            document.getElementById('gapVal').innerText = `${state.pipeGap || 700}mm`;
+            document.getElementById('pipeGap').value = state.pipeGap || 800;
+            document.getElementById('gapVal').innerText = `${state.pipeGap || 800}mm`;
+            document.getElementById('braceGap').value = state.braceGap || 3000;
+            document.getElementById('braceGapVal').innerText = `${state.braceGap || 3000}mm`;
             document.getElementById('sheetW').value = state.sheetW || 1219;
             document.getElementById('sheetL').value = state.sheetL || 2438;
 
             cornerConfig = state.cornerConfig ? JSON.parse(JSON.stringify(state.cornerConfig)) : { TL: 'h', TR: 'h', BL: 'h', BR: 'h' };
+            panelWidthOverrides = state.panelWidthOverrides ? JSON.parse(JSON.stringify(state.panelWidthOverrides)) : {};
             doors = state.doors ? JSON.parse(JSON.stringify(state.doors)) : [];
             partitions = (state.partitions || []).map((p) => {
                 if (p.pos === undefined && p.x1 !== undefined) {
@@ -3313,29 +4013,41 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             drains = state.drains ? JSON.parse(JSON.stringify(state.drains)) : [];
             columns = state.columns ? JSON.parse(JSON.stringify(state.columns)) : [];
             selectedId = null;
+            if (state.memo !== undefined) document.getElementById('memo-text').value = state.memo || '';
+            if (state.machines) {
+                machines = JSON.parse(JSON.stringify(state.machines));
+                renderMachineCards();
+            }
+            if (state.photos) { photos = JSON.parse(JSON.stringify(state.photos)); renderPhotoList(); }
             setMode(state.mode || 'storage');
             updateSelectionPanel();
         }
 
         async function saveDrawing() {
             const name = (document.getElementById('drawingName').value || '').trim();
-            if (!name) {
-                showToast('도면 이름을 입력해주세요.', 'warn');
-                return;
-            }
-            const list = await getDrawings();
-            const exist = list.find((d) => d.name === name);
-            if (exist && !confirm(`"${name}" 도면이 이미 있습니다. 덮어쓰시겠습니까?`)) return;
-            const entry = {
-                id: exist ? exist.id : Date.now(),
+            if (!name) { showToast('도면 이름을 입력해주세요.', 'warn'); return; }
+            const state = getCurrentState();
+            const photoEntries = state.photos || [];
+            const stateForJson = {
+                ...state,
                 name,
-                timestamp: new Date().toISOString(),
-                starred: exist ? !!exist.starred : false,
-                state: getCurrentState()
+                photos: photoEntries.map((p, i) => ({
+                    id: p.id, name: p.name, zipPath: `photos/${i}_${p.name}`
+                }))
             };
-            await apiSaveDrawing(entry);
-            await renderDrawingList();
-            showToast(`"${name}" 저장 완료`);
+            const zip = new JSZip();
+            zip.file('drawing.json', JSON.stringify(stateForJson));
+            photoEntries.forEach((p, i) => {
+                const b64 = p.src.split(',')[1] || '';
+                zip.file(`photos/${i}_${p.name}`, b64, { base64: true });
+            });
+            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${name}.cdz`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            showToast(`"${name}.cdz" 저장됨`);
         }
 
         function resetDrawing() {
@@ -3345,6 +4057,9 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             drains = [];
             columns = [];
             selectedId = null;
+            document.getElementById('memo-text').value = '';
+            machines = []; renderMachineCards();
+            photos = []; renderPhotoList();
             widthIn.value = 5000;
             lengthIn.value = 4000;
             heightIn.value = 2400;
@@ -3353,6 +4068,7 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             floorDir = 'h';
             floorReversed = false;
             cornerConfig = { TL: 'h', TR: 'h', BL: 'h', BR: 'h' };
+            panelWidthOverrides = {};
             const btnH = document.getElementById('btn-floor-h');
             const btnV = document.getElementById('btn-floor-v');
             if (btnH) btnH.className = 'px-2 py-0.5 rounded-md text-[9px] font-black bg-blue-600 text-white';
@@ -3366,9 +4082,11 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             if (btnRevReset) btnRevReset.className = 'px-1.5 py-0.5 rounded-md text-[9px] font-black text-slate-400 border border-slate-200 hover:bg-slate-50 transition-all';
             if (btnBRevReset) btnBRevReset.className = 'px-1.5 py-0.5 rounded-md text-[9px] font-black text-slate-400 border border-slate-200 hover:bg-slate-50 transition-all';
             const pg = document.getElementById('pipeGap');
-            if (pg) pg.value = 700;
+            if (pg) pg.value = 800;
             const pgv = document.getElementById('gapVal');
-            if (pgv) pgv.innerText = '700mm';
+            if (pgv) pgv.innerText = '800mm';
+            document.getElementById('braceGap').value = 3000;
+            document.getElementById('braceGapVal').innerText = '3000mm';
             document.getElementById('drawingName').value = '';
             setMode('storage');
             updateSelectionPanel();
@@ -3412,7 +4130,109 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         }
 
         function closeDrawingList() {
-            document.getElementById('drawing-list').classList.add('hidden');
+            const drawingList = document.getElementById('drawing-list');
+            if (drawingList) drawingList.classList.add('hidden');
+        }
+
+        // ── 인쇄: 헤더 채우기 + 고배율 재렌더 ──────────────────────
+        const PRINT_MODE_LABELS = { storage: '저장고 레이아웃', base: '기초조립대', checkplate: '바닥 체크판' };
+        let _printSaved = null;
+        // A4 가로 도면 영역(약 281×137mm, 아래 표제란 공간 제외) 비율의 인쇄용 캔버스
+        const PRINT_CANVAS = { w: 860, h: 420, dpr: 3, zoom: 1.35 };
+
+        function preparePrintHeader() {
+            const nm = (document.getElementById('drawingName').value || '').trim() || '도면';
+            const modeLabel = PRINT_MODE_LABELS[currentMode] || '도면';
+            const w = parseInt(widthIn.value) || 0;
+            const l = parseInt(lengthIn.value) || 0;
+            const h = parseInt(heightIn.value) || 0;
+            const t = parseInt(thicknessIn.value) || 0;
+            const fmt = (n) => n.toLocaleString('en-US');
+            const val = (id) => (document.getElementById(id).value || '').trim();
+            const txt = (id) => (document.getElementById(id).textContent || '').trim();
+            const pyeong = `${((w / 1000) * (l / 1000) * 0.3025).toFixed(1)}평`;
+
+            // 표제란: 현재 모드 화면에 표시된 값을 그대로 사용
+            const rows = [['도면명', nm], ['구분', modeLabel]];
+            if (currentMode === 'storage') {
+                rows.push(['규격', `${fmt(w)} × ${fmt(l)} × ${fmt(h)} mm (${t}T)`]);
+                rows.push(['면적', `${pyeong} · ${txt('mainStat')}`]);
+                rows.push(['판넬 수량', txt('mainCount')]);
+            } else if (currentMode === 'base') {
+                rows.push(['규격', `${fmt(w)} × ${fmt(l)} mm (${pyeong})`]);
+                rows.push(['파이프', `${val('pipeW')}×${val('pipeH')} · 간격 ${val('pipeGap')} · 보강재 ${val('braceGap')} mm`]);
+                rows.push(['수량', `6m 원자재 ${txt('base-bom-stock-count')} · 부재 ${txt('base-bom-total')}`]);
+            } else {
+                rows.push(['규격', `${fmt(w)} × ${fmt(l)} mm (${pyeong})`]);
+                rows.push(['원장', `${val('sheetW')} × ${val('sheetL')} mm · ${txt('checkplate-bom-total')}`]);
+            }
+            rows.push(['작성일', new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })]);
+
+            // 한 줄에 두 항목씩 배치 (표제란 높이 절약)
+            const tbody = document.getElementById('tb-body');
+            tbody.innerHTML = '';
+            for (let i = 0; i < rows.length; i += 2) {
+                const tr = document.createElement('tr');
+                rows.slice(i, i + 2).forEach(([k, v], j, pair) => {
+                    const th = document.createElement('th');
+                    const td = document.createElement('td');
+                    th.textContent = k;
+                    td.textContent = v;
+                    if (pair.length === 1) td.colSpan = 3;
+                    tr.append(th, td);
+                });
+                tbody.appendChild(tr);
+            }
+            document.getElementById('print-page2-title').textContent = `${nm} · ${modeLabel} — 수량표 / 절단 도면`;
+
+            const memo = (document.getElementById('memo-text').value || '').trim();
+            const memoBox = document.getElementById('print-only-memo');
+            if (memo) {
+                document.getElementById('pm-body').textContent = memo;
+                memoBox.setAttribute('data-has', '1');
+            } else {
+                memoBox.removeAttribute('data-has');
+            }
+        }
+
+        function enterPrintRender() {
+            _printSaved = {
+                w: CANVAS_W, h: CANVAS_H, cx: CANVAS_CX, cy: CANVAS_CY,
+                zoom: canvasZoom, px: canvasPanX, py: canvasPanY
+            };
+            window.__printMode = true;
+            // 논리 크기는 화면과 비슷하게 두어 글자 비율(A4 가로 기준 약 8~10pt)을 유지하고,
+            // 픽셀만 3배로 올려 선명하게 출력 + 줌/팬 초기화하여 항상 중앙 정렬
+            CANVAS_W = PRINT_CANVAS.w; CANVAS_H = PRINT_CANVAS.h;
+            CANVAS_CX = CANVAS_W / 2; CANVAS_CY = CANVAS_H / 2;
+            canvasDPR = PRINT_CANVAS.dpr;
+            canvasZoom = PRINT_CANVAS.zoom; canvasPanX = 0; canvasPanY = 0;
+            try { updateDrawing(); } catch (e) {}
+        }
+
+        function exitPrintRender() {
+            if (!_printSaved) return;
+            window.__printMode = false;
+            canvasDPR = 1;
+            canvasZoom = _printSaved.zoom; canvasPanX = _printSaved.px; canvasPanY = _printSaved.py;
+            CANVAS_W = _printSaved.w; CANVAS_H = _printSaved.h;
+            CANVAS_CX = _printSaved.cx; CANVAS_CY = _printSaved.cy;
+            _printSaved = null;
+            try { updateDrawing(); } catch (e) {}
+        }
+
+        window.addEventListener('beforeprint', () => { preparePrintHeader(); enterPrintRender(); });
+        window.addEventListener('afterprint', exitPrintRender);
+
+        function printDrawing() {
+            preparePrintHeader();
+            enterPrintRender();
+            // 캔버스 재렌더가 반영된 뒤 인쇄 다이얼로그 호출
+            setTimeout(function () {
+                window.print();
+                // Safari 등 afterprint 미지원 환경 대비 복원
+                setTimeout(exitPrintRender, 800);
+            }, 60);
         }
 
         function toggleHelpPanel(force) {
@@ -3477,7 +4297,223 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
         window.onload = () => {
             toggleMaterialView();
             updateDrawing();
+            // ?load=<도면 id> — 견적에 연결된 도면을 이어서 연다.
+            // SaaS 판매 상세의 "도면 연동" 이 quotations.drawing_id 를 붙여 연다.
+            const loadId = new URLSearchParams(window.location.search).get('load');
+            if (loadId) loadDrawing(loadId).catch(() => {});
         };
+
+        async function loadFromZip(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            e.target.value = '';
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const jsonStr = await zip.file('drawing.json').async('string');
+                const state = JSON.parse(jsonStr);
+                if (state.photos && state.photos.length > 0) {
+                    const restored = [];
+                    for (const p of state.photos) {
+                        if (p.zipPath) {
+                            const entry = zip.file(p.zipPath);
+                            if (entry) {
+                                const b64 = await entry.async('base64');
+                                const ext = (p.name.split('.').pop() || '').toLowerCase();
+                                const mime = { png: 'image/png', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/jpeg';
+                                restored.push({ id: p.id, name: p.name, src: `data:${mime};base64,${b64}` });
+                            }
+                        } else if (p.src) {
+                            restored.push(p); // 구버전 호환
+                        }
+                    }
+                    state.photos = restored;
+                }
+                const drawingName = state.name || file.name.replace(/\.(cdz|zip)$/i, '');
+                document.getElementById('drawingName').value = drawingName;
+                applyState(state);
+                showToast(`"${file.name}" 불러옴`);
+            } catch {
+                showToast('파일을 읽을 수 없습니다.', 'warn');
+            }
+        }
+
+        let _resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(_resizeTimer);
+            _resizeTimer = setTimeout(() => updateDrawing(), 120);
+        });
+
+        // ─── 기계 추가 ────────────────────────────────────────────────────
+        let machineElec = '삼상';
+        let machineUse = '냉장';
+        let machines = [];
+
+        function setElecType(type) {
+            machineElec = type;
+            const sel = 'px-2 py-0.5 rounded-md text-[10px] font-black border bg-blue-600 text-white border-blue-600';
+            const off = 'px-2 py-0.5 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 hover:bg-slate-50';
+            document.getElementById('btn-elec-single').className = type === '단상' ? sel : off;
+            document.getElementById('btn-elec-three').className  = type === '삼상' ? sel : off;
+        }
+
+        function setUseType(type) {
+            machineUse = type;
+            const selRef = 'px-2 py-0.5 rounded-md text-[10px] font-black border bg-cyan-500 text-white border-cyan-500';
+            const selFrz = 'px-2 py-0.5 rounded-md text-[10px] font-black border bg-blue-800 text-white border-blue-800';
+            const off    = 'px-2 py-0.5 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 hover:bg-slate-50';
+            document.getElementById('btn-use-ref').className = type === '냉장' ? selRef : off;
+            document.getElementById('btn-use-frz').className = type === '냉동' ? selFrz : off;
+        }
+
+        function toggleMachineForm() {
+            const form = document.getElementById('machine-form');
+            const btn = document.getElementById('btn-machine-toggle');
+            const isHidden = form.classList.toggle('hidden');
+            btn.className = `w-full p-2 rounded-lg font-black text-[10px] border transition-all flex items-center justify-center gap-1 ${
+                isHidden ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                         : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'}`;
+        }
+
+        function addMachineCard() {
+            const pipeLen = document.getElementById('pipe-length').value;
+            machines.push({ id: Date.now(), elec: machineElec, use: machineUse, pipeLen });
+            renderMachineCards();
+        }
+
+        function removeMachineCard(id) {
+            machines = machines.filter(m => m.id !== id);
+            renderMachineCards();
+        }
+
+        function renderMachineCards() {
+            const container = document.getElementById('machine-list');
+            if (!container) return;
+            container.innerHTML = machines.map(m => `
+                <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                    <span class="text-[10px] font-bold text-slate-600">전기 ${m.elec} 용도 ${m.use} 배관 ${m.pipeLen}</span>
+                    <button onclick="removeMachineCard(${m.id})" class="ml-2 shrink-0 text-slate-300 hover:text-red-400 leading-none"><i class="fa-solid fa-xmark text-[11px]"></i></button>
+                </div>
+            `).join('');
+        }
+
+        // ─── 현장사진 ─────────────────────────────────────────────────────
+        let photos = [];
+
+        function compressImage(dataUrl, maxSize, quality) {
+            return new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width > maxSize || height > maxSize) {
+                        if (width >= height) { height = Math.round(height * maxSize / width); width = maxSize; }
+                        else { width = Math.round(width * maxSize / height); height = maxSize; }
+                    }
+                    const c = document.createElement('canvas');
+                    c.width = width; c.height = height;
+                    c.getContext('2d').drawImage(img, 0, 0, width, height);
+                    resolve(c.toDataURL('image/jpeg', quality));
+                };
+                img.src = dataUrl;
+            });
+        }
+
+        function handlePhotoUpload(e) {
+            Array.from(e.target.files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = async ev => {
+                    const compressed = await compressImage(ev.target.result, 1200, 0.7);
+                    photos.push({ id: Date.now() + Math.random(), name: file.name.replace(/\.[^.]+$/, '.jpg'), src: compressed });
+                    renderPhotoList();
+                };
+                reader.readAsDataURL(file);
+            });
+            e.target.value = '';
+        }
+
+        function removePhoto(id) {
+            photos = photos.filter(p => p.id !== id);
+            renderPhotoList();
+        }
+
+        function openPhotoModal(src) {
+            document.getElementById('photo-modal-img').src = src;
+            document.getElementById('photo-modal').classList.remove('hidden');
+        }
+
+        function closePhotoModal() {
+            document.getElementById('photo-modal').classList.add('hidden');
+            document.getElementById('photo-modal-img').src = '';
+        }
+
+        function showPanelLabelEditor(e, area) {
+            const rect = canvas.getBoundingClientRect();
+            let px, py;
+            if (area.useRaw) {
+                px = rect.left + area.rx;
+                py = rect.top + area.ry;
+            } else {
+                px = rect.left + toViewportX(area.mx);
+                py = rect.top + toViewportY(area.my);
+            }
+            const editor = document.getElementById('panel-label-editor');
+            const input = document.getElementById('panel-label-input');
+            input._editArea = area;
+            input.value = area.value;
+            editor.style.left = (px - 44 + window.scrollX) + 'px';
+            editor.style.top  = (py - 14 + window.scrollY) + 'px';
+            editor.style.display = 'block';
+            // mousedown 처리 중 즉시 focus하면 기본 포커스 이동과 충돌 — 다음 프레임으로 미룸
+            setTimeout(() => { input.focus(); input.select(); }, 0);
+        }
+
+        function hidePanelLabelEditor() {
+            document.getElementById('panel-label-editor').style.display = 'none';
+        }
+
+        function commitPanelLabelEdit() {
+            const editor = document.getElementById('panel-label-editor');
+            if (editor.style.display === 'none') return;
+            const input = document.getElementById('panel-label-input');
+            const area = input._editArea;
+            if (!area) { hidePanelLabelEditor(); return; }
+            const val = parseInt(input.value);
+            if (area.type === 'wallpanel') {
+                // 방 크기는 고정 — 같은 세그먼트의 반대쪽 끝 판넬이 차이를 흡수
+                const delta = val - area.value;
+                if (isNaN(val) || delta === 0) { hidePanelLabelEditor(); return; }
+                const widths = area.segWidths.slice();
+                const i = area.segIdx;
+                const j = (i === widths.length - 1) ? 0 : widths.length - 1;
+                widths[i] += delta;
+                widths[j] -= delta;
+                if (widths[i] < 200 || widths[i] > 1000 || widths[j] < 200 || widths[j] > 1000) { hidePanelLabelEditor(); return; }
+                panelWidthOverrides[area.segmentId] = { widths };
+            } else if (area.type === 'dim') {
+                if (isNaN(val) || val < 500 || val > 100000) { hidePanelLabelEditor(); return; }
+                if (area.dimType === 'W') widthIn.value = val; else lengthIn.value = val;
+            }
+            hidePanelLabelEditor();
+            updateDrawing();
+        }
+
+        function renderPhotoList() {
+            const container = document.getElementById('photo-list');
+            if (!container) return;
+            container.innerHTML = photos.map(p => `
+                <div class="relative group rounded-lg overflow-hidden border border-slate-200 cursor-pointer" onclick="openPhotoModal('${p.src}')">
+                    <img src="${p.src}" alt="${p.name}" class="w-full h-20 object-cover">
+                    <div class="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] font-bold px-1.5 py-0.5 truncate">${p.name}</div>
+                    <button onclick="event.stopPropagation();removePhoto(${p.id})" class="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-all leading-none"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            `).join('');
+        }
     </script>
+
+    <div id="panel-label-editor" style="display:none; position:absolute; z-index:2000; pointer-events:auto;">
+        <input id="panel-label-input" type="number"
+            style="width:88px; text-align:center; font-size:13px; font-weight:bold; padding:4px 6px; border:2px solid #3b82f6; border-radius:5px; outline:none; box-shadow:0 2px 8px rgba(0,0,0,0.18); background:#fff;"
+            onkeydown="if(event.key==='Enter'){commitPanelLabelEdit();}else if(event.key==='Escape'){hidePanelLabelEditor();}"
+            onblur="commitPanelLabelEdit();">
+    </div>
 </body>
 </html>
