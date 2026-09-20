@@ -101,7 +101,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="submitPayment()" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">등록</button>
+      <button onclick="submitPayment(this)" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">등록</button>
     </div>
   </div>
 </div>
@@ -117,7 +117,7 @@ async function init() {
   ]);
 
   // KPI
-  const unpaidOrders = orders.filter(o => o.order_status !== 'done' && (o.total||0) > (o.total_paid||0));
+  const unpaidOrders = orders.filter(o => tracksUnpaid(o.order_status) && (o.total||0) > (o.total_paid||0));
   const totalUnpaid  = unpaidOrders.reduce((s,o) => s + ((o.total||0)-(o.total_paid||0)), 0);
   const ym = today().slice(0,7);
   const monthPaid = payments.filter(p => (p.paid_at||'').startsWith(ym)).reduce((s,p)=>s+(p.amount||0),0);
@@ -126,8 +126,11 @@ async function init() {
   document.getElementById('kpi-month').textContent  = monthPaid.toLocaleString() + '원';
 
   // 모달 주문 목록 (미수 있는 것 우선)
+  // init() 은 입금 등록·삭제 후에도 다시 불린다. 옵션을 비우지 않으면
+  // 같은 주문이 계속 쌓인다.
   const sel = document.getElementById('m-order');
-  const active = orders.filter(o => o.order_status !== 'done');
+  sel.innerHTML = '<option value="">-- 주문 선택 --</option>';
+  const active = orders.filter(o => o.order_status !== 'cancelled');
   active.forEach(o => {
     const c = customers.find(x=>x.id===o.customer_id);
     const name = c ? c.name : (o.customer||'');
@@ -148,17 +151,20 @@ async function init() {
   };
 
   document.getElementById('m-date').value = today();
-  renderTab('unpaid');
-
-  document.getElementById('main-tabs').addEventListener('click', e => {
-    const btn = e.target.closest('.mtab');
-    if (!btn) return;
-    document.querySelectorAll('.mtab').forEach(b => {
-      b.className = 'mtab py-2 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
-    });
-    renderTab(btn.dataset.t);
-  });
+  // 보고 있던 탭을 유지한다 (예전에는 삭제할 때마다 '미수금' 으로 튕겼다)
+  renderTab(curTab || 'unpaid');
 }
+
+// 리스너는 딱 한 번만. init() 안에 있으면 호출할 때마다 중복 등록돼
+// 탭 한 번 클릭에 renderTab 이 N회 실행됐다.
+document.getElementById('main-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.mtab');
+  if (!btn) return;
+  document.querySelectorAll('.mtab').forEach(b => {
+    b.className = 'mtab py-2 text-sm font-medium border-b-2 ' + (b===btn?'border-blue-600 text-blue-600':'border-transparent text-slate-500');
+  });
+  renderTab(btn.dataset.t);
+});
 
 function renderTab(t) {
   curTab = t;
@@ -168,7 +174,7 @@ function renderTab(t) {
 }
 
 function renderUnpaid(tc) {
-  const rows = orders.filter(o => (o.total||0) > (o.total_paid||0) && o.order_status !== 'done');
+  const rows = orders.filter(o => (o.total||0) > (o.total_paid||0) && tracksUnpaid(o.order_status));
   rows.sort((a,b) => ((b.total||0)-(b.total_paid||0)) - ((a.total||0)-(a.total_paid||0)));
 
   if (!rows.length) { tc.innerHTML = '<div class="text-center text-slate-400 text-sm py-12">미수금 없음 🎉</div>'; return; }
@@ -246,23 +252,30 @@ function closeModal() { document.getElementById('pay-modal').classList.add('hidd
 
 function quickPay(orderId) { openModal(orderId); }
 
-async function submitPayment() {
+async function submitPayment(btn) {
   const orderId = parseInt(document.getElementById('m-order').value);
   const amount  = parseInt(document.getElementById('m-amount').value);
-  if (!orderId || !amount) return alert('주문과 금액을 입력하세요.');
-  await api.post('/api/payments', {
-    order_id: orderId, amount, paid_at: document.getElementById('m-date').value, note: document.getElementById('m-note').value
+  if (!orderId || !amount) return toast('주문과 금액을 입력하세요.', 'error');
+
+  const o = orders.find(x => x.id === orderId);
+  const unpaid = (o?.total || 0) - (o?.total_paid || 0);
+  if (amount > unpaid && !confirm(`미수금 ${won(unpaid)} 을 초과합니다. 그래도 등록할까요?`)) return;
+
+  await guard(btn, async () => {
+    if (!await tryApi(() => api.post('/api/payments', {
+      order_id: orderId, amount,
+      paid_at: document.getElementById('m-date').value,
+      note: document.getElementById('m-note').value,
+    }), '입금이 등록됐습니다.')) return;
+    closeModal();
+    await init();
   });
-  closeModal();
-  [orders, payments] = await Promise.all([api.get('/api/quotations'), api.get('/api/payments')]);
-  init();
 }
 
 async function delPayment(id, orderId) {
   if (!confirm('삭제할까요?')) return;
-  await api.del(`/api/payments/${id}`);
-  [orders, payments] = await Promise.all([api.get('/api/quotations'), api.get('/api/payments')]);
-  init();
+  if (!await tryApi(() => api.del(`/api/payments/${id}`), '삭제됐습니다.')) return;
+  await init();
 }
 
 init();

@@ -14,6 +14,13 @@ const SALES_STATUS_CLS = {
   draft:'s-draft', ordered:'s-ordered', partial:'s-partial',
   shipped:'s-shipped', done:'s-done', cancelled:'s-cancelled',
 };
+/** 미수금으로 집계하는 상태인가.
+ *  견적(draft)은 아직 주문이 아니고 취소건은 받을 돈이 없다. 완료(done)는 포함한다 —
+ *  납품이 끝났는데 못 받은 돈이야말로 미수금이다.
+ *  서버 /api/dashboard 의 totalUnpaid 조건과 반드시 같아야 한다. */
+const UNPAID_EXCLUDED = ['draft', 'cancelled'];
+function tracksUnpaid(status) { return !UNPAID_EXCLUDED.includes(status); }
+
 /** 상태 배지 HTML */
 function statusBadge(status, labels = SALES_STATUS_LABEL, classes = SALES_STATUS_CLS) {
   return `<span class="status-badge ${classes[status] || 's-draft'}">${esc(labels[status] || status || '')}</span>`;

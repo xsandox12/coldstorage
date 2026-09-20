@@ -250,9 +250,11 @@
 const API = '';
 const STATUS_LABEL = SALES_STATUS_LABEL;   // common.js — cancelled 포함
 const STATUS_CLS   = SALES_STATUS_CLS;
+// cancelled 는 제외 — 취소는 사유를 남기는 "거래 취소" 버튼으로만 한다.
+// 드롭다운에 두면 사유가 빈 취소건이 만들어진다.
 const ALL_STATUSES = [
   {v:'draft',l:'견적'},{v:'ordered',l:'주문'},{v:'partial',l:'부분출고'},
-  {v:'shipped',l:'출고'},{v:'done',l:'완료'},{v:'cancelled',l:'취소'},
+  {v:'shipped',l:'출고'},{v:'done',l:'완료'},
 ];
 
 let orders = [], customers = [], curFilter = 'all', curId = null, curItems = [], curPayments = [];
@@ -290,17 +292,17 @@ function renderList() {
     const custName = cust ? cust.name : (o.customer || '—');
     return `<div class="p-3 cursor-pointer hover:bg-slate-50 ${curId===o.id?'row-sel':''}" onclick="selectOrder(${o.id})">
       <div class="flex items-center justify-between mb-1">
-        <span class="font-medium text-sm truncate max-w-[180px]">${custName}</span>
+        <span class="font-medium text-sm truncate max-w-[180px]">${esc(custName)}</span>
         <span class="status-badge ${STATUS_CLS[o.order_status]||'s-draft'}">${STATUS_LABEL[o.order_status]||o.order_status}</span>
       </div>
       <div class="flex items-center justify-between">
         <span class="text-xs text-slate-400">${o.no||'#'+o.id} · ${o.date||''}</span>
         <div class="text-right">
           <div class="text-xs font-semibold text-slate-700">${(o.total||0).toLocaleString()}원</div>
-          ${unpaid>0 ? `<div class="text-xs text-red-500">미수 ${unpaid.toLocaleString()}원</div>` : ''}
+          ${unpaid>0 && tracksUnpaid(o.order_status) ? `<div class="text-xs text-red-500">미수 ${num(unpaid)}원</div>` : ''}
         </div>
       </div>
-      ${o.items ? `<div class="text-xs text-slate-400 mt-1 truncate">${o.items}</div>` : ''}
+      ${o.items ? `<div class="text-xs text-slate-400 mt-1 truncate">${esc(o.items)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -343,11 +345,11 @@ async function selectOrder(id) {
       <div class="flex items-start justify-between">
         <div>
           <div class="flex items-center gap-2 mb-1">
-            <span class="font-bold text-base">${custName}</span>
+            <span class="font-bold text-base">${esc(custName)}</span>
             <span class="status-badge ${STATUS_CLS[order.order_status]||'s-draft'}">${STATUS_LABEL[order.order_status]||order.order_status}</span>
           </div>
           <div class="text-xs text-slate-400">${order.no||'#'+order.id} · ${order.date||''} · ${order.ref||'한남냉동테크(주)'}</div>
-          ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${order.cancelled_reason}</div>` : ''}
+          ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${esc(order.cancelled_reason)}</div>` : ''}
         </div>
         <div class="flex gap-2 flex-wrap justify-end">
           ${!isCancelled ? `
@@ -356,7 +358,9 @@ async function selectOrder(id) {
               ${ALL_STATUSES.filter(s=>s.v!==order.order_status).map(s=>`<option value="${s.v}">${s.l}</option>`).join('')}
             </select>
             <button onclick="openCancelModal(${order.id})" class="text-xs px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100">거래 취소</button>
-          ` : ''}
+          ` : `
+            <button onclick="uncancelOrder(${order.id})" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200">취소 해제</button>
+          `}
           <button onclick="openDrawingModal(${order.id})" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">✏️ 도면 연동</button>
         </div>
       </div>
@@ -417,7 +421,25 @@ function renderTab(tab) {
 // ─── 상태 변경 ───────────────────────────────────────────────
 async function changeStatus(id, newStatus) {
   if (!newStatus) return;
-  await api.patch(`/api/quotations/${id}/status`, { status:newStatus });
+  const o = orders.find(x => x.id === id);
+  const unpaid = (o?.total || 0) - (o?.total_paid || 0);
+  // 완료로 넘기면 미수금 현황에서 빠지므로 남은 금액을 먼저 알린다
+  if (newStatus === 'done' && unpaid > 0 &&
+      !confirm(`미수금 ${won(unpaid)} 이 남아 있습니다.\n완료 처리하시겠습니까?`)) {
+    renderList(); await selectOrder(id); return;   // select 를 원래 값으로 되돌린다
+  }
+  if (!await tryApi(() => api.patch(`/api/quotations/${id}/status`, { status:newStatus }))) {
+    renderList(); await selectOrder(id); return;
+  }
+  orders = await api.get('/api/quotations');
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(id);
+}
+
+async function uncancelOrder(id) {
+  if (!confirm('취소를 해제할까요?')) return;
+  if (!await tryApi(() => api.patch(`/api/quotations/${id}/uncancel`), '취소가 해제됐습니다.')) return;
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
@@ -430,14 +452,17 @@ function openCancelModal(id) { cancelTargetId = id; document.getElementById('can
 function closeCancelModal() { document.getElementById('cancel-modal').classList.add('hidden'); cancelTargetId = null; }
 
 async function submitCancel() {
-  if (!cancelTargetId) return;
-  const reason = document.getElementById('cancel-reason').value;
-  await api.patch(`/api/quotations/${cancelTargetId}/cancel`, { reason });
+  const id = cancelTargetId;          // closeCancelModal() 이 null 로 만들므로 먼저 받아둔다
+  if (!id) return;
+  const reason = document.getElementById('cancel-reason').value.trim();
+  if (!reason) return toast('취소 사유를 입력하세요.', 'error');
+  if (!confirm('이 거래를 취소할까요?')) return;
+  if (!await tryApi(() => api.patch(`/api/quotations/${id}/cancel`, { reason }), '취소됐습니다.')) return;
   closeCancelModal();
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  await selectOrder(cancelTargetId);
+  await selectOrder(id);
 }
 
 // ─── 품목 탭 ─────────────────────────────────────────────────
@@ -939,18 +964,27 @@ function closeCompletionBatchModal() { document.getElementById('completion-batch
 
 async function submitCompletionBatch() {
   const orderIds = Array.from(document.querySelectorAll('.cbo-check:checked')).map(el => parseInt(el.value));
-  if (!orderIds.length) { alert('주문서를 선택하세요.'); return; }
+  if (!orderIds.length) { toast('주문서를 선택하세요.', 'error'); return; }
 
-  await api.post('/api/completion-batches', {
+  // 완료되면 미수금 현황에서 빠진다 — 남은 금액을 먼저 보여준다
+  const withUnpaid = orderIds
+    .map(id => orders.find(o => o.id === id))
+    .filter(o => o && (o.total||0) > (o.total_paid||0));
+  if (withUnpaid.length) {
+    const sum = withUnpaid.reduce((s,o) => s + ((o.total||0)-(o.total_paid||0)), 0);
+    const list = withUnpaid.map(o => `· ${o.no||'#'+o.id} ${won((o.total||0)-(o.total_paid||0))}`).join('\n');
+    if (!confirm(`미수금이 남은 주문 ${withUnpaid.length}건 (합계 ${won(sum)})\n\n${list}\n\n완료 처리하시겠습니까?`)) return;
+  } else if (!confirm(`${orderIds.length}건을 완료 처리할까요?`)) return;
+
+  if (!await tryApi(() => api.post('/api/completion-batches', {
     order_ids: orderIds, completed_at: document.getElementById('cb-date').value, note: document.getElementById('cb-note').value,
-  });
+  }), '완료 처리됐습니다.')) return;
 
   closeCompletionBatchModal();
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (curId && orderIds.includes(curId)) await selectOrder(curId);
-  alert('완료 처리됐습니다.');
 }
 
 init();
