@@ -92,6 +92,12 @@
         </div>
       </div>
       <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">담당자</label>
+        <select id="m-assignee" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <option value="">-- 미지정 --</option>
+        </select>
+      </div>
+      <div>
         <label class="text-xs font-medium text-slate-500 mb-1 block">증상 / 요청사항 *</label>
         <textarea id="m-issue" rows="3" placeholder="증상을 입력하세요..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"></textarea>
       </div>
@@ -112,7 +118,7 @@
 </div>
 
 <script>
-let records = [], customers = [], curFilter = 'all';
+let records = [], customers = [], staff = [], curFilter = 'all';
 
 const STATUS_LABEL = { OPEN:'미처리', IN_PROGRESS:'처리중', DONE:'완료', CLOSED:'종료' };
 const STATUS_FLOW  = { OPEN:'IN_PROGRESS', IN_PROGRESS:'DONE', DONE:'CLOSED' };
@@ -131,14 +137,19 @@ const BADGE = {
 };
 
 async function init() {
-  [records, customers] = await Promise.all([
+  [records, customers, staff] = await Promise.all([
     api.get('/api/as_records'),
     api.get('/api/customers'),
+    api.get('/api/users'),
   ]);
   records.sort((a,b) => b.date > a.date ? 1 : -1);
-  // 모달 고객 목록
+  // 모달 고객 목록 — init() 이 다시 불려도 옵션이 쌓이지 않도록 매번 새로 채운다
   const sel = document.getElementById('m-cust');
+  sel.innerHTML = '<option value="">-- 선택 --</option>';
   customers.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  const asg = document.getElementById('m-assignee');
+  asg.innerHTML = '<option value="">-- 미지정 --</option>' +
+    staff.map(u => `<option value="${u.id}">${esc(u.name || u.username)}</option>`).join('');
   document.getElementById('m-date').value = today();
   // 고객 선택 시 이름 자동
   sel.onchange = () => {
@@ -172,6 +183,16 @@ function renderList() {
       </div>
       <div class="text-sm text-slate-700 mb-3">${esc(a.issue||'')}</div>
       ${a.desc?`<div class="text-xs text-slate-500 bg-slate-50 rounded p-2 mb-3">${esc(a.desc)}</div>`:''}
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs text-slate-400 shrink-0">담당</span>
+        <select onchange="setAssignee('${esc(a.id)}', this)"
+                class="text-xs border border-slate-200 rounded px-2 py-1 bg-white flex-1 min-w-0">
+          <option value="">미지정</option>
+          ${staff.map(u => `<option value="${u.id}"${String(u.id)===String(a.assignee_id)?' selected':''}>${esc(u.name||u.username)}</option>`).join('')}
+          ${a.assignee && !staff.some(u => String(u.id)===String(a.assignee_id))
+            ? `<option value="${esc(String(a.assignee_id ?? ''))}" selected>${esc(a.assignee)} (비활성)</option>` : ''}
+        </select>
+      </div>
       <div class="flex items-center justify-between">
         <span class="text-xs text-slate-400">${esc(a.date||'')}</span>
         <div class="flex gap-2">
@@ -211,12 +232,31 @@ async function deleteAS(id) {
 function openModal() { document.getElementById('as-modal').classList.remove('hidden'); }
 function closeModal() { document.getElementById('as-modal').classList.add('hidden'); }
 
+/** 담당자 변경. select 는 guard() 대상이 아니다 — guard 는 textContent 를 바꿔
+ *  '처리 중…' 으로 옵션을 통째로 날려버린다. */
+async function setAssignee(id, sel) {
+  const prev = records.find(r => r.id === id);
+  const u = staff.find(x => String(x.id) === sel.value);
+  sel.disabled = true;
+  const ok = await tryApi(() => api.put(`/api/as_records/${id}`, {
+    assignee_id: u ? u.id : null,
+    assignee: u ? (u.name || u.username) : '',
+  }), '담당자를 변경했습니다.');
+  sel.disabled = false;
+  if (!ok) { sel.value = prev?.assignee_id ?? ''; return; }   // 실패하면 원래대로
+  records = await api.get('/api/as_records');
+  records.sort((a,b) => b.date > a.date ? 1 : -1);
+  renderList();
+}
+
 async function submitAS() {
   const issue = document.getElementById('m-issue').value.trim();
-  if (!issue) return alert('증상을 입력하세요.');
+  if (!issue) return toast('증상을 입력하세요.', 'error');
   const custId = document.getElementById('m-cust').value;
   const custName = document.getElementById('m-cname').value.trim() ||
     (customers.find(c=>c.id===custId)?.name || '');
+  const asgId = document.getElementById('m-assignee').value;
+  const asg   = staff.find(u => String(u.id) === asgId);
   const body = {
     id: 'AS-' + Date.now(),
     cust_id: custId, cust_name: custName,
@@ -225,9 +265,13 @@ async function submitAS() {
     issue, desc: document.getElementById('m-desc').value,
     status: 'OPEN', type: 'NORMAL',
     date: document.getElementById('m-date').value,
+    // 이름도 함께 저장한다 — 계정을 비활성화해도 누가 맡았는지는 남아야 한다
+    assignee_id: asg ? asg.id : null,
+    assignee: asg ? (asg.name || asg.username) : '',
   };
-  await api.post('/api/as_records', body);
-  records.unshift(body);
+  if (!await tryApi(() => api.post('/api/as_records', body), '접수됐습니다.')) return;
+  records = await api.get('/api/as_records');
+  records.sort((a,b) => b.date > a.date ? 1 : -1);
   closeModal();
   ['m-cname','m-phone','m-issue','m-desc'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('m-cust').value='';

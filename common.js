@@ -80,6 +80,26 @@ async function guard(btn, fn) {
   finally { btn.disabled = false; btn.textContent = old; }
 }
 
+/* ── 로그인 사용자 ─────────────────────────────────────────── */
+/** 현재 사용자. api.js 로드 후 자동으로 채워진다. */
+let ME = null;
+/** 사이드바에 이름을 띄운다. nav 는 7개 파일에 복붙돼 있어 HTML 을 고치면
+ *  7곳을 고쳐야 하므로, 로그아웃 링크를 찾아 그 위에 끼워 넣는다. */
+async function initNavUser() {
+  try { ME = await api.get('/api/me'); } catch { return; }
+  const logout = document.querySelector('a[href="/logout"]');
+  if (!logout || document.getElementById('nav-me')) return;
+  const el = document.createElement('a');
+  el.id = 'nav-me';
+  el.href = '/account.html';
+  el.className = 'nav-link';
+  el.title = '계정 설정';
+  el.innerHTML = `<span>👤</span><span class="truncate">${esc(ME.name || ME.username)}</span>` +
+                 (ME.role === 'admin' ? '<span class="text-[10px] text-blue-300 ml-auto">관리자</span>' : '');
+  logout.parentNode.insertBefore(el, logout);
+}
+document.addEventListener('DOMContentLoaded', initNavUser);
+
 /* ── 검색 ──────────────────────────────────────────────────── */
 /** 여러 필드에 대한 부분일치. 공백으로 나눈 모든 토큰이 포함돼야 한다. */
 function matches(query, ...fields) {

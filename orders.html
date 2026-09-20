@@ -391,6 +391,7 @@ async function selectOrder(id) {
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="payments">입금</button>
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="shipments">출고</button>
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="memo">메모</button>
+      <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="history">이력</button>
     </div>
 
     <!-- 탭 콘텐츠 -->
@@ -416,6 +417,48 @@ function renderTab(tab) {
   else if (tab === 'payments') renderPaymentsTab(tc);
   else if (tab === 'shipments') renderShipmentsTab(tc);
   else if (tab === 'memo') renderMemoTab(tc);
+  else if (tab === 'history') renderHistoryTab(tc);
+}
+
+// ─── 이력 탭 ─────────────────────────────────────────────────
+// status_changes / quotation_sources 는 그동안 쓰기만 하고 보는 곳이 없었다.
+async function renderHistoryTab(tc) {
+  const id = curId;
+  tc.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">불러오는 중…</div>';
+  let h;
+  try { h = await api.get(`/api/quotations/${id}/history`); }
+  catch { tc.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">이력을 불러오지 못했습니다.</div>'; return; }
+  if (curId !== id) return;   // 그 사이 다른 주문을 골랐으면 버린다
+
+  const order = orders.find(o => o.id === id);
+  const src = h.sources?.length ? `
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-3">
+      <div class="text-sm font-semibold mb-2">출처 견적</div>
+      ${h.sources.map(s => `<div class="text-xs text-slate-600">
+        ${esc(s.no || '#'+s.source_quotation_id)} · ${esc(s.date || '')} · ${esc(s.customer || '')}</div>`).join('')}
+    </div>` : '';
+
+  tc.innerHTML = `
+    ${src}
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-3 text-xs text-slate-500">
+      작성자 <span class="text-slate-700 font-medium">${esc(order?.created_by || '기록 없음')}</span>
+      · 등록일 ${esc(order?.date || '')}
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      ${!h.changes.length ? '<div class="p-4 text-center text-slate-400 text-sm">상태 변경 이력 없음</div>' :
+      `<table class="w-full text-xs"><thead class="bg-slate-50"><tr>
+        <th class="p-2 text-left font-medium text-slate-500">일시</th>
+        <th class="p-2 text-left font-medium text-slate-500">변경</th>
+        <th class="p-2 text-left font-medium text-slate-500">처리자</th>
+        <th class="p-2 text-left font-medium text-slate-500">사유</th>
+      </tr></thead><tbody>${h.changes.map(c => `
+        <tr class="border-t border-slate-50">
+          <td class="p-2 text-slate-500 whitespace-nowrap">${esc(String(c.changed_at || '').replace('T',' ').slice(0,16))}</td>
+          <td class="p-2 whitespace-nowrap">${statusBadge(c.from_status)} → ${statusBadge(c.to_status)}</td>
+          <td class="p-2">${esc(c.user_name || '—')}</td>
+          <td class="p-2 text-slate-500">${esc(c.reason || '')}</td>
+        </tr>`).join('')}</tbody></table>`}
+    </div>`;
 }
 
 // ─── 상태 변경 ───────────────────────────────────────────────

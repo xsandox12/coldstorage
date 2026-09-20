@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>계정 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+  .nav-link { display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;color:#94a3b8;font-size:13px;font-weight:500;transition:all .15s; }
+  .nav-link:hover { background:#334155;color:#e2e8f0; }
+  .nav-link.active { background:#1d4ed8;color:#fff; }
+  ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+  .fld { border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;width:100%; }
+  .fld:focus { outline:none;border-color:#3b82f6; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
+
+<aside class="w-52 bg-slate-800 flex flex-col shrink-0">
+  <div class="p-4 border-b border-slate-700">
+    <div class="text-white font-bold text-sm">❄️ ColdStorage</div>
+    <div class="text-slate-400 text-xs mt-0.5">한남냉동테크(주)</div>
+  </div>
+  <nav class="flex-1 p-3 flex flex-col gap-1 overflow-y-auto">
+    <a href="/" class="nav-link">🏠 대시보드</a>
+    <a href="/orders.html" class="nav-link">📋 판매</a>
+    <a href="/purchases.html" class="nav-link">🛒 구매</a>
+    <a href="/customers.html" class="nav-link">👤 고객</a>
+    <a href="/as.html" class="nav-link">🔧 A/S</a>
+    <a href="/payments.html" class="nav-link">💰 입금</a>
+    <a href="/products.html" class="nav-link">📦 상품</a>
+    <div class="mt-auto pt-3 border-t border-slate-700">
+      <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
+    </div>
+  </nav>
+</aside>
+
+<div class="flex-1 overflow-y-auto">
+  <div class="max-w-3xl mx-auto p-8 flex flex-col gap-6">
+
+    <h1 class="font-bold text-lg">계정 설정</h1>
+
+    <!-- 내 계정 -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-6">
+      <h2 class="font-semibold text-sm mb-1">내 계정</h2>
+      <p class="text-xs text-slate-400 mb-4" id="me-line">불러오는 중…</p>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="text-xs text-slate-500">현재 비밀번호</label>
+          <input id="pw-cur" type="password" autocomplete="current-password" class="fld mt-1">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">새 비밀번호</label>
+          <input id="pw-new" type="password" autocomplete="new-password" class="fld mt-1">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">새 비밀번호 확인</label>
+          <input id="pw-new2" type="password" autocomplete="new-password" class="fld mt-1">
+        </div>
+      </div>
+      <p class="text-xs text-slate-400 mt-2">비밀번호를 바꾸면 다른 기기의 로그인이 모두 해제됩니다.</p>
+      <div class="flex justify-end mt-4">
+        <button onclick="guard(this, changeMyPassword)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">비밀번호 변경</button>
+      </div>
+    </section>
+
+    <!-- 계정 관리 (관리자) -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-6 hidden" id="admin-section">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-sm">직원 계정</h2>
+        <button onclick="openNewUser()" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">+ 계정 추가</button>
+      </div>
+      <div id="user-list"></div>
+    </section>
+
+  </div>
+</div>
+
+<!-- 계정 추가 모달 -->
+<div id="user-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[440px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">계정 추가</h2>
+      <button onclick="closeNewUser()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="text-xs text-slate-500">아이디 *</label><input id="nu-user" class="fld mt-1" placeholder="영문·숫자 3자 이상" autocapitalize="off" spellcheck="false"></div>
+      <div><label class="text-xs text-slate-500">이름</label><input id="nu-name" class="fld mt-1" placeholder="김기사"></div>
+      <div><label class="text-xs text-slate-500">비밀번호 *</label><input id="nu-pw" type="password" class="fld mt-1" placeholder="4자 이상"></div>
+      <div><label class="text-xs text-slate-500">권한</label>
+        <select id="nu-role" class="fld mt-1"><option value="staff">직원</option><option value="admin">관리자</option></select>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button onclick="closeNewUser()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="guard(this, createUser)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">추가</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let users = [];
+
+async function init() {
+  ME = await api.get('/api/me');
+  document.getElementById('me-line').textContent =
+    `${ME.name || ME.username} (${ME.username}) · ${ME.role === 'admin' ? '관리자' : '직원'}`;
+  if (ME.role === 'admin') {
+    document.getElementById('admin-section').classList.remove('hidden');
+    await loadUsers();
+  }
+}
+
+async function loadUsers() {
+  users = await api.get('/api/users');
+  const el = document.getElementById('user-list');
+  el.innerHTML = `<table class="w-full text-sm">
+    <thead class="bg-slate-50 text-xs text-slate-500">
+      <tr><th class="p-2 text-left font-medium">아이디</th><th class="p-2 text-left font-medium">이름</th>
+          <th class="p-2 text-left font-medium">권한</th><th class="p-2 w-40"></th></tr>
+    </thead>
+    <tbody>${users.map(u => `
+      <tr class="border-t border-slate-100">
+        <td class="p-2">${esc(u.username)}</td>
+        <td class="p-2">${esc(u.name || '—')}</td>
+        <td class="p-2 text-xs">${u.role === 'admin' ? '관리자' : '직원'}</td>
+        <td class="p-2 text-right">
+          <button onclick="guard(this, () => resetPassword(${u.id}))" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50">비밀번호 재설정</button>
+          ${u.id === ME.id ? '' :
+            `<button onclick="guard(this, () => deactivate(${u.id}))" class="text-xs px-2 py-1 border border-red-100 text-red-500 rounded hover:bg-red-50 ml-1">비활성화</button>`}
+        </td>
+      </tr>`).join('')}
+    </tbody></table>
+    <p class="text-xs text-slate-400 mt-3">비활성화하면 목록에서 사라지고 즉시 로그아웃됩니다. 이력에 남은 이름은 그대로 보존됩니다.</p>`;
+}
+
+async function changeMyPassword() {
+  const cur = document.getElementById('pw-cur').value;
+  const a   = document.getElementById('pw-new').value;
+  const b   = document.getElementById('pw-new2').value;
+  if (!cur) return toast('현재 비밀번호를 입력하세요.', 'error');
+  if (a.length < 4) return toast('새 비밀번호는 4자 이상이어야 합니다.', 'error');
+  if (a !== b)      return toast('새 비밀번호가 서로 다릅니다.', 'error');
+  if (!await tryApi(() => api.patch(`/api/users/${ME.id}/password`, { current: cur, password: a }),
+                    '비밀번호를 변경했습니다.')) return;
+  for (const id of ['pw-cur','pw-new','pw-new2']) document.getElementById(id).value = '';
+}
+
+function openNewUser() {
+  for (const id of ['nu-user','nu-name','nu-pw']) document.getElementById(id).value = '';
+  document.getElementById('nu-role').value = 'staff';
+  document.getElementById('user-modal').classList.remove('hidden');
+}
+function closeNewUser() { document.getElementById('user-modal').classList.add('hidden'); }
+
+async function createUser() {
+  const body = {
+    username: document.getElementById('nu-user').value.trim(),
+    name:     document.getElementById('nu-name').value.trim(),
+    password: document.getElementById('nu-pw').value,
+    role:     document.getElementById('nu-role').value,
+  };
+  if (!body.username) return toast('아이디를 입력하세요.', 'error');
+  if (body.password.length < 4) return toast('비밀번호는 4자 이상이어야 합니다.', 'error');
+  if (!await tryApi(() => api.post('/api/users', body), '계정을 만들었습니다.')) return;
+  closeNewUser();
+  await loadUsers();
+}
+
+async function resetPassword(id) {
+  const u = users.find(x => x.id === id);
+  const pw = prompt(`${u?.name || u?.username} 의 새 비밀번호 (4자 이상)`);
+  if (pw === null) return;
+  if (pw.length < 4) return toast('비밀번호는 4자 이상이어야 합니다.', 'error');
+  await tryApi(() => api.patch(`/api/users/${id}/password`, { password: pw }),
+               '비밀번호를 재설정했습니다. 해당 계정은 즉시 로그아웃됩니다.');
+}
+
+async function deactivate(id) {
+  const u = users.find(x => x.id === id);
+  if (!confirm(`${u?.name || u?.username} 계정을 비활성화할까요?\n즉시 로그아웃되고 목록에서 사라집니다.`)) return;
+  if (!await tryApi(() => api.patch(`/api/users/${id}/active`, { active: false }), '비활성화했습니다.')) return;
+  await loadUsers();
+}
+
+init();
+</script>
+</body>
+</html>
