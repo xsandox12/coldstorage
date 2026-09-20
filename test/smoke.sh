@@ -238,6 +238,17 @@ check "자기 계정 비활성화 -> 400" 400 "$(code -X PATCH "$BASE/api/users/
                                         -H 'Content-Type: application/json' -d '{"active":false}')"
 rm -f "$SCK"
 
+# 터널 뒤에서는 모든 요청이 같은 소켓 IP 다. IP 만으로 세면 한 사람의 오타가
+# 사무실 전체를 잠근다 — 제한은 (IP, 아이디) 단위여야 한다.
+for _ in $(seq 1 12); do
+  curl -s -o /dev/null -X POST "$BASE/api/login" -H 'Content-Type: application/json' \
+       -d '{"username":"__lockme__","password":"x"}'
+done
+check "★ 반복 실패한 아이디는 429"  429 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
+                                        -H 'Content-Type: application/json' -d '{"username":"__lockme__","password":"x"}')"
+check "★ 다른 아이디는 영향 없음"   200 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
+                                        -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}")"
+
 echo
 echo "[Phase 1 이력에 행위자]"
 check "상태 변경에 이름 기록"     "true" \

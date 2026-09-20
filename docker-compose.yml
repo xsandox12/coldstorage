@@ -11,8 +11,11 @@ services:
       ADMIN_USER:     ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_NAME:     ${ADMIN_NAME:-관리자}
-      # 공용 비밀번호 시절 값 — 계정 생성 시 대체 소스로만 쓰인다
-      APP_PASSWORD:   ${APP_PASSWORD:-}
+      # 공용 비밀번호 시절 값. 둘 다 비면 최초 관리자가 만들어지지 않아
+      # 아무도 로그인할 수 없으므로 기본값을 남겨 둔다.
+      # 배포 직후 /account.html 에서 바꾸면 이 값은 더 이상 쓰이지 않는다
+      # (seedAdmin 은 users 가 비어 있을 때만 동작한다).
+      APP_PASSWORD:   ${APP_PASSWORD:-0000}
       # HTTPS 터널 뒤이므로 쿠키에 Secure 를 붙인다
       COOKIE_SECURE:  ${COOKIE_SECURE:-1}
     volumes:

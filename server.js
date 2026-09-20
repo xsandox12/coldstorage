@@ -693,10 +693,12 @@ async function handle(req, res) {
 
   // ── 로그인 / 로그아웃 ────────────────────────────────────────
   if (pathname === '/api/login' && method === 'POST') {
-    const who = req.socket.remoteAddress || 'unknown';
-    if (!loginAllowed(who)) return json(res, 429, { error: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' });
     const body = await parseBody(req);
     const username = String(body?.username ?? '').trim();
+    // 터널(cloudflared) 뒤에서는 모든 요청이 같은 소켓 IP 로 들어온다. IP 만으로
+    // 세면 한 사람의 오타 10번이 사무실 전체를 10분간 잠근다. 아이디까지 넣는다.
+    const who = `${req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?'}:${username}`;
+    if (!loginAllowed(who)) return json(res, 429, { error: '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.' });
     const u = username && db.prepare('SELECT * FROM users WHERE username=?').get(username);
     // 아이디가 없어도 같은 비용을 치러 사용자 존재 여부가 응답 시간으로 새지 않게 한다
     const salt = u ? u.salt : 'none';
