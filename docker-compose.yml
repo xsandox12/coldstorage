@@ -5,8 +5,8 @@ services:
     ports:
       - "9000:9000"
     environment:
-      # 공용 로그인 비밀번호 — 변경 시 이 값만 수정 후 up -d
-      APP_PASSWORD: "0000"
+      # 공용 로그인 비밀번호 — 변경 시 서버의 .env 에 APP_PASSWORD=새값 (커밋 금지)
+      APP_PASSWORD: ${APP_PASSWORD:-0000}
     volumes:
       - coldstorage-data:/app/data
     networks:

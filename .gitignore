@@ -16,3 +16,6 @@ data/
 
 # 세션 시크릿
 .session-secret
+
+# 서버 비밀번호 등 로컬 설정
+.env
