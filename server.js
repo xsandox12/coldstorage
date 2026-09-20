@@ -27,17 +27,23 @@ db.exec(`
     email TEXT DEFAULT '', address_post TEXT DEFAULT '',
     address_base TEXT DEFAULT '', address_detail TEXT DEFAULT '',
     status TEXT DEFAULT 'NORMAL', price_group TEXT DEFAULT 'A',
+    -- 아래 둘은 갱신하는 코드가 없다. 고객 화면의 거래액·최근활동은 quotations
+    -- 에서 집계해 그린다. 기존 데이터가 있어 남겨 두지만 쓰지 않는다.
     total_amount INTEGER DEFAULT 0, last_activity TEXT DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS quotations (
     id INTEGER PRIMARY KEY,
     no TEXT DEFAULT '', customer TEXT DEFAULT '',
+    -- items 는 이름과 달리 품목이 아니라 한 줄 메모다 (품목은 order_items).
+    -- 운영 데이터가 들어 있어 이름만 고치려고 옮기지 않는다.
     items TEXT DEFAULT '', total INTEGER DEFAULT 0,
     payment TEXT DEFAULT '', drawing INTEGER DEFAULT 0,
     accounting INTEGER DEFAULT 0, printed INTEGER DEFAULT 0,
     ref TEXT DEFAULT '', date TEXT DEFAULT '', status TEXT DEFAULT '진행중',
     customer_id TEXT DEFAULT '', drawing_id TEXT DEFAULT '',
     order_status TEXT DEFAULT 'draft', total_paid INTEGER DEFAULT 0,
+    -- items_json / status / printed / payment / accounting 은 order_items 와
+    -- order_status 로 대체된 옛 컬럼이다. 읽는 코드가 없다.
     items_json TEXT DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS order_items (
@@ -68,6 +74,7 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS as_records (
     id TEXT PRIMARY KEY,
+    -- proj_id 는 가리키는 테이블이 없다 (projects 테이블은 존재한 적이 없다)
     proj_id TEXT DEFAULT '', cust_id TEXT DEFAULT '',
     cust_name TEXT DEFAULT '', phone TEXT DEFAULT '',
     type TEXT DEFAULT 'NORMAL', issue TEXT DEFAULT '',
@@ -338,6 +345,9 @@ if ((db.pragma('user_version', { simple: true }) || 0) < 1) {
 })();
 
 // ─── 리소스 설정 ─────────────────────────────────────────────
+/* settings 는 공급자 정보·도면 설정으로 쓰인다(print.html, companyName).
+ * inventory / templates 는 읽는 화면이 아직 없다 — 재고 기능은 미구현이고
+ * 판매·구매 어느 쪽도 재고를 증감시키지 않는다. 데이터가 들어 있어 남겨 둔다. */
 const BLOB_KEYS = new Set(['inventory', 'templates', 'settings']);
 const TABLES = {
   customers:   { table: 'customers',   int: false },

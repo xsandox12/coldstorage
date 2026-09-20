@@ -143,3 +143,21 @@ function exportCsv(resource, params = {}) {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
   location.href = `/api/export/${resource}?${qs}`;
 }
+
+/* 모달에서 Enter 로 확인 — <form> 태그가 한 곳도 없어 지금까지 Enter 가
+ * 아무 일도 하지 않았다. 입력 하나 치고 마우스로 버튼을 찾아야 했다.
+ * 모달마다 마지막 버튼이 확인 동작이라는 규칙(전 화면 일치)을 그대로 쓴다. */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (e.isComposing || e.keyCode === 229) return;   // 한글 조합 확정용 Enter 는 제외
+  const el = e.target;
+  if (!el || el.tagName !== 'INPUT') return;        // textarea 는 줄바꿈이 맞다
+  if (['checkbox','radio','button','submit'].includes(el.type)) return;
+  const modal = el.closest('[id$="modal"]');
+  if (!modal || modal.classList.contains('hidden')) return;
+  const btns = modal.querySelectorAll('button');
+  const ok = btns[btns.length - 1];
+  if (!ok || ok.disabled) return;
+  e.preventDefault();
+  ok.click();
+});

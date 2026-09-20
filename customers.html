@@ -295,7 +295,6 @@ async function addCustomer() {
     email: document.getElementById('am-email').value,
     address_base: document.getElementById('am-addr').value,
     address_detail: '', address_post: '', status: 'NORMAL', price_group: 'A',
-    total_amount: 0, last_activity: today(),
   };
   await api.post('/api/customers', body);
   customers.push(body);
