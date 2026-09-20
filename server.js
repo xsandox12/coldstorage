@@ -280,9 +280,9 @@ function updateOne(cfg, id, patch) {
 function deleteOne(cfg, id) {
   db.prepare(`DELETE FROM ${cfg.table} WHERE id=?`).run(id);
 }
-function replaceAll(cfg, rows) {
-  db.transaction(() => { db.prepare(`DELETE FROM ${cfg.table}`).run(); rows.forEach(r => upsert(cfg, r)); })();
-}
+// 금액·상태 캐시 컬럼을 클라이언트가 직접 덮어쓰지 못하도록 — 이 테이블들은
+// 전용 엔드포인트(/status, /cancel, /memo, /order_items/order/:id)로만 수정한다.
+const GENERIC_WRITE_BLOCKED = new Set(['quotations', 'purchases', 'order_items', 'purchase_items']);
 
 // ─── 전문 쿼리 ───────────────────────────────────────────────
 function recalcPaid(orderId) {
@@ -338,20 +338,42 @@ const json = (res, status, data) => {
   res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', ...CORS });
   res.end(JSON.stringify(data));
 };
+const BODY_LIMIT = 1024 * 1024;   // 1MB
 const parseBody = req => new Promise((resolve, reject) => {
   let body = '';
-  req.on('data', c => { body += c; });
-  req.on('end', () => { try { resolve(JSON.parse(body || 'null')); } catch { resolve(null); } });
+  let over = false;
+  req.on('data', c => {
+    if (over) return;
+    body += c;
+    if (body.length > BODY_LIMIT) { over = true; body = ''; req.destroy(); }
+  });
+  req.on('end', () => {
+    if (over) return resolve(null);
+    try { resolve(JSON.parse(body || 'null')); } catch { resolve(null); }
+  });
   req.on('error', reject);
 });
+
+// 정적 파일로 내보내도 되는 확장자만 — DB·시크릿·서버 소스 유출 방지
+const STATIC_EXT = new Set(Object.keys(MIME));
+// 확장자는 허용 목록에 있지만 내보내면 안 되는 파일
+const STATIC_DENY = new Set(['server.js', 'package.json', 'package-lock.json']);
 const serveStatic = (req, res, pathname) => {
   if (pathname === '/') pathname = '/index.html';
-  const fp = path.join(ROOT, pathname);
-  if (!fp.startsWith(ROOT)) { res.writeHead(403); res.end('Forbidden'); return; }
+  const fp = path.resolve(ROOT, '.' + pathname);
+  // ROOT 밖 / data 디렉토리 / dot 으로 시작하는 파일·디렉토리 차단
+  const rel = path.relative(ROOT, fp);
+  if (rel.startsWith('..') || path.isAbsolute(rel) ||
+      rel.split(/[\\/]/).some(seg => seg.startsWith('.')) ||
+      fp === DATA_DIR || fp.startsWith(DATA_DIR + path.sep)) {
+    res.writeHead(403, {'Content-Type':'text/plain'}); res.end('Forbidden'); return;
+  }
+  if (!STATIC_EXT.has(path.extname(fp).toLowerCase()) || STATIC_DENY.has(rel.toLowerCase())) {
+    res.writeHead(404, {'Content-Type':'text/plain'}); res.end('Not Found'); return;
+  }
   fs.readFile(fp, (err, data) => {
-    if (err) { res.writeHead(404, {'Content-Type':'text/plain'}); res.end(`Not Found: ${pathname}`); return; }
-    const mime = MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream';
-    res.writeHead(200, {'Content-Type': mime});
+    if (err) { res.writeHead(404, {'Content-Type':'text/plain'}); res.end('Not Found'); return; }
+    res.writeHead(200, {'Content-Type': MIME[path.extname(fp).toLowerCase()]});
     res.end(data);
   });
 };
@@ -398,8 +420,21 @@ const PUBLIC_PATHS = new Set(['/login.html', '/api/login', '/logout']);
 
 // ─── HTTP 서버 ──────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
+  try {
+    await handle(req, res);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] ${req.method} ${req.url}\n`, err);
+    if (!res.headersSent) json(res, 500, { ok:false, error:'서버 오류가 발생했습니다.' });
+    else res.end();
+  }
+});
+
+async function handle(req, res) {
   const { pathname: rawPath } = url.parse(req.url);
-  const pathname = decodeURIComponent(rawPath);
+  // 잘못된 퍼센트 인코딩(예: GET /%)이 프로세스를 죽이지 않도록
+  let pathname;
+  try { pathname = decodeURIComponent(rawPath); }
+  catch { return json(res, 400, { ok:false, error:'잘못된 경로입니다.' }); }
   const method   = req.method.toUpperCase();
 
   if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
@@ -787,13 +822,9 @@ const server = http.createServer(async (req, res) => {
       upsert(cfg, item);
       return json(res, 200, { ok:true });
     }
-    if (method === 'PUT') {
-      const data = await parseBody(req);
-      if (data === null) return json(res, 400, { ok:false, error:'본문 없음' });
-      replaceAll(cfg, data);
-      return json(res, 200, { ok:true });
-    }
-    return json(res, 405, { ok:false });
+    // PUT /api/:resource (테이블 전체 교체) 는 제거됨 — 프론트에서 쓰지 않으며
+    // 빈 배열 하나로 테이블이 통째로 비워지는 사고 경로였다.
+    return json(res, 405, { ok:false, error:'허용되지 않는 메서드' });
   }
 
   // ── /api/:resource/:id ───────────────────────────────────────
@@ -810,6 +841,9 @@ const server = http.createServer(async (req, res) => {
       const item = getOne(cfg, id);
       if (!item) return json(res, 404, { ok:false, error:'항목 없음' });
       return json(res, 200, item);
+    }
+    if ((method === 'PUT' || method === 'PATCH') && GENERIC_WRITE_BLOCKED.has(resource)) {
+      return json(res, 405, { ok:false, error:'전용 엔드포인트를 사용하세요.' });
     }
     if (method === 'PUT') {
       const body = await parseBody(req);
@@ -830,6 +864,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   serveStatic(req, res, pathname);
+}
+
+// 예기치 못한 오류로 프로세스가 죽지 않도록 (Node 18+ 는 기본이 fatal)
+process.on('unhandledRejection', err => {
+  console.error(`[${new Date().toISOString()}] unhandledRejection\n`, err);
+});
+process.on('uncaughtException', err => {
+  console.error(`[${new Date().toISOString()}] uncaughtException\n`, err);
 });
 
 server.listen(PORT, () => {
