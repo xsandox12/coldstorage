@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>대시보드 — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
   * { font-family: 'Pretendard', sans-serif; }
@@ -14,6 +16,7 @@
   ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
   .s-draft{background:#dbeafe;color:#1d4ed8} .s-ordered{background:#ffedd5;color:#c2410c}
   .s-partial{background:#fef9c3;color:#854d0e} .s-shipped{background:#ede9fe;color:#6d28d9} .s-done{background:#dcfce7;color:#15803d}
+  .s-cancelled { background:#fee2e2;color:#dc2626; }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 flex h-screen overflow-hidden">
@@ -33,6 +36,7 @@
     <a href="/products.html" class="nav-link">📦 상품</a>
     <div class="mt-auto pt-3 border-t border-slate-700">
       <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
     </div>
   </nav>
 </aside>
@@ -97,8 +101,8 @@
 </div>
 
 <script>
-const STATUS_LABEL = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료' };
-const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', shipped:'s-shipped', done:'s-done' };
+const STATUS_LABEL = SALES_STATUS_LABEL;   // common.js — cancelled 포함
+const STATUS_CLS   = SALES_STATUS_CLS;
 const WQ_STYLE = {
   '미수금': { icon:'💰', badge:'bg-red-100 text-red-700' },
   'AS':     { icon:'🔧', badge:'bg-orange-100 text-orange-700' },
@@ -110,7 +114,7 @@ async function init() {
   document.getElementById('today-label').textContent =
     now.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
 
-  const dash = await fetch('/api/dashboard').then(r=>r.json());
+  const dash = await api.get('/api/dashboard');
   const { kpi, workqueue, recent } = dash;
 
   document.getElementById('k1').textContent = kpi.thisMonthDraft;

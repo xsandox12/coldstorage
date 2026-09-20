@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>A/S — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
   * { font-family: 'Pretendard', sans-serif; }
@@ -31,6 +33,7 @@
     <a href="/products.html" class="nav-link">📦 상품</a>
     <div class="mt-auto pt-3 border-t border-slate-700">
       <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
     </div>
   </nav>
 </aside>
@@ -128,14 +131,14 @@ const BADGE = {
 
 async function init() {
   [records, customers] = await Promise.all([
-    fetch('/api/as_records').then(r=>r.json()),
-    fetch('/api/customers').then(r=>r.json()),
+    api.get('/api/as_records'),
+    api.get('/api/customers'),
   ]);
   records.sort((a,b) => b.date > a.date ? 1 : -1);
   // 모달 고객 목록
   const sel = document.getElementById('m-cust');
   customers.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
-  document.getElementById('m-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('m-date').value = today();
   // 고객 선택 시 이름 자동
   sel.onchange = () => {
     const c = customers.find(x=>x.id===sel.value);
@@ -191,7 +194,7 @@ document.getElementById('filter-tabs').addEventListener('click', e => {
 });
 
 async function advance(id, next) {
-  await fetch(`/api/as_records/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:next }) });
+  await api.put(`/api/as_records/${id}`, { status:next });
   const r = records.find(x=>x.id===id);
   if (r) r.status = next;
   renderList();
@@ -199,7 +202,7 @@ async function advance(id, next) {
 
 async function deleteAS(id) {
   if (!confirm('삭제할까요?')) return;
-  await fetch(`/api/as_records/${id}`, { method:'DELETE' });
+  await api.del(`/api/as_records/${id}`);
   records = records.filter(r=>r.id!==id);
   renderList();
 }
@@ -222,7 +225,7 @@ async function submitAS() {
     status: 'OPEN', type: 'NORMAL',
     date: document.getElementById('m-date').value,
   };
-  await fetch('/api/as_records', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  await api.post('/api/as_records', body);
   records.unshift(body);
   closeModal();
   ['m-cname','m-phone','m-issue','m-desc'].forEach(id=>document.getElementById(id).value='');

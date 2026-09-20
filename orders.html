@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>판매 — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
   * { font-family: 'Pretendard', sans-serif; }
@@ -44,6 +46,7 @@
     <a href="/products.html" class="nav-link">📦 상품</a>
     <div class="mt-auto pt-3 border-t border-slate-700">
       <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
     </div>
   </nav>
 </aside>
@@ -245,8 +248,8 @@
 
 <script>
 const API = '';
-const STATUS_LABEL = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료', cancelled:'취소' };
-const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', shipped:'s-shipped', done:'s-done', cancelled:'s-cancelled' };
+const STATUS_LABEL = SALES_STATUS_LABEL;   // common.js — cancelled 포함
+const STATUS_CLS   = SALES_STATUS_CLS;
 const ALL_STATUSES = [
   {v:'draft',l:'견적'},{v:'ordered',l:'주문'},{v:'partial',l:'부분출고'},
   {v:'shipped',l:'출고'},{v:'done',l:'완료'},{v:'cancelled',l:'취소'},
@@ -257,12 +260,12 @@ let orders = [], customers = [], curFilter = 'all', curId = null, curItems = [],
 // ─── 초기화 ──────────────────────────────────────────────────
 async function init() {
   [orders, customers] = await Promise.all([
-    fetch('/api/quotations').then(r=>r.json()),
-    fetch('/api/customers').then(r=>r.json()),
+    api.get('/api/quotations'),
+    api.get('/api/customers'),
   ]);
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  const today = new Date().toISOString().slice(0,10);
+  const today = today();
   // 고객 선택 옵션 공통 채우기
   ['new-cust','compose-cust'].forEach(selId => {
     const sel = document.getElementById(selId);
@@ -321,8 +324,8 @@ async function selectOrder(id) {
   if (!order) return;
 
   [curItems, curPayments] = await Promise.all([
-    fetch(`/api/order_items/order/${id}`).then(r=>r.json()),
-    fetch(`/api/payments/order/${id}`).then(r=>r.json()),
+    api.get(`/api/order_items/order/${id}`),
+    api.get(`/api/payments/order/${id}`),
   ]);
 
   const cust = customers.find(c=>c.id===order.customer_id);
@@ -414,8 +417,8 @@ function renderTab(tab) {
 // ─── 상태 변경 ───────────────────────────────────────────────
 async function changeStatus(id, newStatus) {
   if (!newStatus) return;
-  await fetch(`/api/quotations/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:newStatus }) });
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  await api.patch(`/api/quotations/${id}/status`, { status:newStatus });
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   await selectOrder(id);
@@ -429,9 +432,9 @@ function closeCancelModal() { document.getElementById('cancel-modal').classList.
 async function submitCancel() {
   if (!cancelTargetId) return;
   const reason = document.getElementById('cancel-reason').value;
-  await fetch(`/api/quotations/${cancelTargetId}/cancel`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ reason }) });
+  await api.patch(`/api/quotations/${cancelTargetId}/cancel`, { reason });
   closeCancelModal();
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   await selectOrder(cancelTargetId);
@@ -514,8 +517,8 @@ function addItemRow() {
 function removeItem(i) { curItems.splice(i, 1); renderTab('items'); }
 
 async function saveItems() {
-  await fetch(`/api/order_items/order/${curId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(curItems) });
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  await api.put(`/api/order_items/order/${curId}`, curItems);
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   alert('저장됐습니다.');
@@ -531,7 +534,7 @@ function renderPaymentsTab(tc) {
     <div id="pay-form" class="hidden bg-white rounded-xl border border-slate-200 p-4 mb-3">
       <div class="grid grid-cols-3 gap-2 mb-2">
         <div><label class="text-xs text-slate-500">금액</label><input id="pf-amount" type="number" placeholder="0" class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
-        <div><label class="text-xs text-slate-500">입금일</label><input id="pf-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
+        <div><label class="text-xs text-slate-500">입금일</label><input id="pf-date" type="date" value="${today()}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
         <div><label class="text-xs text-slate-500">메모</label><input id="pf-note" type="text" placeholder="계약금, 잔금..." class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
       </div>
       <div class="flex justify-end gap-2">
@@ -562,11 +565,11 @@ function showPayForm() { document.getElementById('pay-form').classList.remove('h
 async function submitPayment() {
   const amount = parseInt(document.getElementById('pf-amount').value);
   if (!amount) return alert('금액을 입력하세요.');
-  await fetch('/api/payments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+  await api.post('/api/payments', {
     order_id: curId, amount, paid_at: document.getElementById('pf-date').value, note: document.getElementById('pf-note').value
-  })});
-  curPayments = await fetch(`/api/payments/order/${curId}`).then(r=>r.json());
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  });
+  curPayments = await api.get(`/api/payments/order/${curId}`);
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   renderPaymentsTab(document.getElementById('tab-content'));
@@ -574,9 +577,9 @@ async function submitPayment() {
 
 async function delPayment(id) {
   if (!confirm('삭제할까요?')) return;
-  await fetch(`/api/payments/${id}`, { method:'DELETE' });
-  curPayments = await fetch(`/api/payments/order/${curId}`).then(r=>r.json());
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  await api.del(`/api/payments/${id}`);
+  curPayments = await api.get(`/api/payments/order/${curId}`);
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   renderPaymentsTab(document.getElementById('tab-content'));
@@ -617,12 +620,11 @@ function renderShipmentsTab(tc) {
 async function submitShipItem(itemId, orderId) {
   const qty = parseFloat(document.getElementById(`ship-${itemId}`).value);
   if (!qty || qty <= 0) return alert('수량을 입력하세요.');
-  await fetch('/api/shipments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    order_id: orderId, item_id: itemId, qty, shipped_at: new Date().toISOString().slice(0,10)
-  })});
+  await api.post('/api/shipments', {
+    order_id: orderId, item_id: itemId, qty, shipped_at: today()});
   [curItems, orders] = await Promise.all([
-    fetch(`/api/order_items/order/${orderId}`).then(r=>r.json()),
-    fetch('/api/quotations').then(r=>r.json()),
+    api.get(`/api/order_items/order/${orderId}`),
+    api.get('/api/quotations'),
   ]);
   orders.sort((a,b) => b.id - a.id);
   renderList();
@@ -661,10 +663,10 @@ function renderMemoTab(tc) {
 async function saveMemo(type) {
   const val = document.getElementById(`memo-${type}`).value;
   const field = type === 'customer' ? 'memo_customer' : 'memo_internal';
-  await fetch(`/api/quotations/${curId}/memo`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ [field]: val }) });
+  // 실패해도 성공 알림이 뜨고 로컬 객체만 바뀌던 자리
+  if (!await tryApi(() => api.patch(`/api/quotations/${curId}/memo`, { [field]: val }), '저장됐습니다.')) return;
   const order = orders.find(o => o.id === curId);
   if (order) order[field] = val;
-  alert('저장됐습니다.');
 }
 
 // ─── 도면 연동 ───────────────────────────────────────────────
@@ -691,8 +693,8 @@ window.addEventListener('message', async e => {
       } else {
         curItems = items;
       }
-      await fetch(`/api/order_items/order/${window._drawingOrderId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(curItems) });
-      orders = await fetch('/api/quotations').then(r=>r.json());
+      await api.put(`/api/order_items/order/${window._drawingOrderId}`, curItems);
+      orders = await api.get('/api/quotations');
       orders.sort((a,b) => b.id - a.id);
       renderList();
       renderTab('items');
@@ -706,7 +708,7 @@ function openNewModal() {
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth()+1).padStart(2,'0');
   const dd = String(now.getDate()).padStart(2,'0');
-  const cnt = orders.filter(o => o.date === now.toISOString().slice(0,10)).length + 1;
+  const cnt = orders.filter(o => o.date === today()).length + 1;
   const autoNo = `${yy}/${mm}/${dd}-${cnt}`;
   document.getElementById('new-no').value = autoNo;
   document.getElementById('compose-no').value = autoNo;
@@ -723,9 +725,9 @@ async function createOrder() {
   if (!custId) return alert('고객을 선택하세요.');
   const cust = customers.find(c=>c.id===custId);
   const body = { no, date, customer_id: custId, customer: cust?.name||'', items: memo, total:0, order_status:'draft', total_paid:0, ref:'한남냉동테크(주)', status:'진행중', items_json:'[]' };
-  const r = await fetch('/api/quotations', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const r = await api.post('/api/quotations', body);
   closeNewModal();
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (orders.length) selectOrder(orders[0].id);
@@ -748,7 +750,7 @@ async function loadComposeQuotes() {
   const el = document.getElementById('compose-quotes-list');
   if (!draftOrders.length) { el.innerHTML = '<div class="p-3 text-sm text-slate-400 text-center">견적 상태 판매서가 없습니다.</div>'; return; }
 
-  const allItems = await Promise.all(draftOrders.map(o => fetch(`/api/order_items/order/${o.id}`).then(r=>r.json())));
+  const allItems = await Promise.all(draftOrders.map(o => api.get(`/api/order_items/order/${o.id}`)));
   const custName = o => customers.find(c=>c.id===o.customer_id)?.name || o.customer || '—';
 
   el.innerHTML = draftOrders.map((o, idx) => {
@@ -812,18 +814,15 @@ async function createFromQuotations() {
   if (!items_from.length && !extraValid.length) return alert('견적서에서 품목을 선택하거나 추가 품목을 입력하세요.');
 
   const cust = customers.find(c=>c.id===custId);
-  const r = await fetch('/api/quotations/from-quotations', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
+  const r = await api.post('/api/quotations/from-quotations', {
       customer_id: custId, customer: cust?.name||'',
       no: document.getElementById('compose-no').value,
       date: document.getElementById('compose-date').value,
       items_from, additional_items: extraValid,
-    })
-  }).then(r=>r.json());
+    }).then(r=>r.json());
 
   closeNewModal();
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (r.id) selectOrder(r.id);
@@ -838,7 +837,7 @@ async function openShipBatchModal() {
 
   shipBatchItems = {};
   await Promise.all(shippable.map(async o => {
-    shipBatchItems[o.id] = await fetch(`/api/order_items/order/${o.id}`).then(r=>r.json());
+    shipBatchItems[o.id] = await api.get(`/api/order_items/order/${o.id}`);
   }));
 
   const custName = o => customers.find(c=>c.id===o.customer_id)?.name || o.customer || '—';
@@ -867,7 +866,7 @@ async function openShipBatchModal() {
     </div>`;
   }).join('') || '<div class="p-4 text-sm text-slate-400 text-center">미출고 품목이 없습니다.</div>';
 
-  document.getElementById('sb-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('sb-date').value = today();
   document.getElementById('sb-note').value = '';
   document.getElementById('ship-batch-modal').classList.remove('hidden');
 }
@@ -894,12 +893,12 @@ async function submitShipBatch() {
   }
   if (!items.length) { alert('출고 수량을 입력하세요.'); return; }
 
-  await fetch('/api/shipment-batches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+  await api.post('/api/shipment-batches', {
     items, shipped_at: document.getElementById('sb-date').value, note: document.getElementById('sb-note').value,
-  })});
+  });
 
   closeShipBatchModal();
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (curId) await selectOrder(curId);
@@ -931,7 +930,7 @@ async function openCompletionBatchModal() {
         </tr>`).join('')}</tbody></table>
     </div>`;
 
-  document.getElementById('cb-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cb-date').value = today();
   document.getElementById('cb-note').value = '';
   document.getElementById('completion-batch-modal').classList.remove('hidden');
 }
@@ -942,12 +941,12 @@ async function submitCompletionBatch() {
   const orderIds = Array.from(document.querySelectorAll('.cbo-check:checked')).map(el => parseInt(el.value));
   if (!orderIds.length) { alert('주문서를 선택하세요.'); return; }
 
-  await fetch('/api/completion-batches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+  await api.post('/api/completion-batches', {
     order_ids: orderIds, completed_at: document.getElementById('cb-date').value, note: document.getElementById('cb-note').value,
-  })});
+  });
 
   closeCompletionBatchModal();
-  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (curId && orderIds.includes(curId)) await selectOrder(curId);

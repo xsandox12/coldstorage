@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>입금 — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
   * { font-family: 'Pretendard', sans-serif; }
@@ -31,6 +33,7 @@
     <a href="/products.html" class="nav-link">📦 상품</a>
     <div class="mt-auto pt-3 border-t border-slate-700">
       <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
     </div>
   </nav>
 </aside>
@@ -108,15 +111,15 @@ let orders = [], payments = [], customers = [], curTab = 'unpaid';
 
 async function init() {
   [orders, payments, customers] = await Promise.all([
-    fetch('/api/quotations').then(r=>r.json()),
-    fetch('/api/payments').then(r=>r.json()),
-    fetch('/api/customers').then(r=>r.json()),
+    api.get('/api/quotations'),
+    api.get('/api/payments'),
+    api.get('/api/customers'),
   ]);
 
   // KPI
   const unpaidOrders = orders.filter(o => o.order_status !== 'done' && (o.total||0) > (o.total_paid||0));
   const totalUnpaid  = unpaidOrders.reduce((s,o) => s + ((o.total||0)-(o.total_paid||0)), 0);
-  const ym = new Date().toISOString().slice(0,7);
+  const ym = today().slice(0,7);
   const monthPaid = payments.filter(p => (p.paid_at||'').startsWith(ym)).reduce((s,p)=>s+(p.amount||0),0);
   document.getElementById('kpi-unpaid').textContent = totalUnpaid.toLocaleString() + '원';
   document.getElementById('kpi-cnt').textContent    = unpaidOrders.length + '건';
@@ -144,7 +147,7 @@ async function init() {
     } else { info.classList.add('hidden'); }
   };
 
-  document.getElementById('m-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('m-date').value = today();
   renderTab('unpaid');
 
   document.getElementById('main-tabs').addEventListener('click', e => {
@@ -247,18 +250,18 @@ async function submitPayment() {
   const orderId = parseInt(document.getElementById('m-order').value);
   const amount  = parseInt(document.getElementById('m-amount').value);
   if (!orderId || !amount) return alert('주문과 금액을 입력하세요.');
-  await fetch('/api/payments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+  await api.post('/api/payments', {
     order_id: orderId, amount, paid_at: document.getElementById('m-date').value, note: document.getElementById('m-note').value
-  })});
+  });
   closeModal();
-  [orders, payments] = await Promise.all([fetch('/api/quotations').then(r=>r.json()), fetch('/api/payments').then(r=>r.json())]);
+  [orders, payments] = await Promise.all([api.get('/api/quotations'), api.get('/api/payments')]);
   init();
 }
 
 async function delPayment(id, orderId) {
   if (!confirm('삭제할까요?')) return;
-  await fetch(`/api/payments/${id}`, { method:'DELETE' });
-  [orders, payments] = await Promise.all([fetch('/api/quotations').then(r=>r.json()), fetch('/api/payments').then(r=>r.json())]);
+  await api.del(`/api/payments/${id}`);
+  [orders, payments] = await Promise.all([api.get('/api/quotations'), api.get('/api/payments')]);
   init();
 }
 

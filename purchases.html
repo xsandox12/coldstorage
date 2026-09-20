@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>구매 — ColdStorage</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/common.js"></script>
+<script src="/api.js"></script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
   * { font-family: 'Pretendard', sans-serif; }
@@ -17,6 +19,7 @@
   .s-partial  { background:#fef9c3;color:#854d0e; }
   .s-shipped  { background:#ede9fe;color:#6d28d9; }
   .s-done     { background:#dcfce7;color:#15803d; }
+  .s-cancelled { background:#fee2e2;color:#dc2626; }
   .row-sel    { background:#eff6ff!important; }
   ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
   .item-row input { border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;font-size:12px;width:100%; }
@@ -40,6 +43,7 @@
     <a href="/products.html" class="nav-link">📦 상품</a>
     <div class="mt-auto pt-3 border-t border-slate-700">
       <a href="/drawing_app.html" target="_blank" class="nav-link">✏️ 도면 설계 ↗</a>
+      <a href="/logout" class="nav-link">🚪 로그아웃</a>
     </div>
   </nav>
 </aside>
@@ -123,8 +127,8 @@ let purchases = [], customers = [], curFilter = 'all', curId = null, curItems = 
 
 async function init() {
   [purchases, customers] = await Promise.all([
-    fetch('/api/purchases').then(r=>r.json()),
-    fetch('/api/customers').then(r=>r.json()),
+    api.get('/api/purchases'),
+    api.get('/api/customers'),
   ]);
   purchases.sort((a,b) => b.id - a.id);
   renderList();
@@ -134,7 +138,7 @@ async function init() {
     const c = customers.find(x=>x.id===sel.value);
     if (c) document.getElementById('new-vendor').value = c.name;
   };
-  document.getElementById('new-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('new-date').value = today();
 }
 
 function filtered() {
@@ -182,8 +186,8 @@ async function selectPurchase(id) {
   if (!purchase) return;
 
   [curItems, curPayments] = await Promise.all([
-    fetch(`/api/purchase_items/purchase/${id}`).then(r=>r.json()),
-    fetch(`/api/purchase_payments/purchase/${id}`).then(r=>r.json()),
+    api.get(`/api/purchase_items/purchase/${id}`),
+    api.get(`/api/purchase_payments/purchase/${id}`),
   ]);
 
   const unpaid = (purchase.total||0) - (purchase.total_paid||0);
@@ -326,8 +330,8 @@ function addItemRow() {
 function removeItem(i) { curItems.splice(i, 1); renderTab('items'); }
 
 async function saveItems() {
-  await fetch(`/api/purchase_items/purchase/${curId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(curItems) });
-  purchases = await fetch('/api/purchases').then(r=>r.json());
+  await api.put(`/api/purchase_items/purchase/${curId}`, curItems);
+  purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
   alert('저장됐습니다.');
@@ -347,7 +351,7 @@ function renderPaymentsTab(tc) {
         </div>
         <div>
           <label class="text-xs text-slate-500">결제일</label>
-          <input id="pf-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
+          <input id="pf-date" type="date" value="${today()}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
         </div>
         <div>
           <label class="text-xs text-slate-500">메모</label>
@@ -386,11 +390,11 @@ function showPayForm() { document.getElementById('pay-form').classList.remove('h
 async function submitPayment() {
   const amount = parseInt(document.getElementById('pf-amount').value);
   if (!amount) return alert('금액을 입력하세요.');
-  await fetch('/api/purchase_payments', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+  await api.post('/api/purchase_payments', {
     purchase_id: curId, amount, paid_at: document.getElementById('pf-date').value, note: document.getElementById('pf-note').value
-  })});
-  curPayments = await fetch(`/api/purchase_payments/purchase/${curId}`).then(r=>r.json());
-  purchases = await fetch('/api/purchases').then(r=>r.json());
+  });
+  curPayments = await api.get(`/api/purchase_payments/purchase/${curId}`);
+  purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
   renderPaymentsTab(document.getElementById('tab-content'));
@@ -398,9 +402,9 @@ async function submitPayment() {
 
 async function delPayment(id) {
   if (!confirm('삭제할까요?')) return;
-  await fetch(`/api/purchase_payments/${id}`, { method:'DELETE' });
-  curPayments = await fetch(`/api/purchase_payments/purchase/${curId}`).then(r=>r.json());
-  purchases = await fetch('/api/purchases').then(r=>r.json());
+  await api.del(`/api/purchase_payments/${id}`);
+  curPayments = await api.get(`/api/purchase_payments/purchase/${curId}`);
+  purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
   renderPaymentsTab(document.getElementById('tab-content'));
@@ -440,12 +444,11 @@ function renderReceiptsTab(tc) {
 async function submitReceiptItem(itemId, purchaseId) {
   const qty = parseFloat(document.getElementById(`recv-${itemId}`).value);
   if (!qty || qty <= 0) return alert('수량을 입력하세요.');
-  await fetch('/api/purchase_receipts', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    purchase_id: purchaseId, item_id: itemId, qty, received_at: new Date().toISOString().slice(0,10)
-  })});
+  await api.post('/api/purchase_receipts', {
+    purchase_id: purchaseId, item_id: itemId, qty, received_at: today()});
   [curItems, purchases] = await Promise.all([
-    fetch(`/api/purchase_items/purchase/${purchaseId}`).then(r=>r.json()),
-    fetch('/api/purchases').then(r=>r.json()),
+    api.get(`/api/purchase_items/purchase/${purchaseId}`),
+    api.get('/api/purchases'),
   ]);
   purchases.sort((a,b) => b.id - a.id);
   renderList();
@@ -455,8 +458,8 @@ async function submitReceiptItem(itemId, purchaseId) {
 
 async function advanceStatus(id, next) {
   if (!confirm(`"${STATUS_LABEL[next]}" 상태로 변경할까요?`)) return;
-  await fetch(`/api/purchases/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:next }) });
-  purchases = await fetch('/api/purchases').then(r=>r.json());
+  await api.patch(`/api/purchases/${id}/status`, { status:next });
+  purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
   await selectPurchase(id);
@@ -467,7 +470,7 @@ function openNewModal() {
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth()+1).padStart(2,'0');
   const dd = String(now.getDate()).padStart(2,'0');
-  const cnt = purchases.filter(p => p.date === now.toISOString().slice(0,10)).length + 1;
+  const cnt = purchases.filter(p => p.date === today()).length + 1;
   document.getElementById('new-no').value = `PO-${yy}${mm}${dd}-${cnt}`;
   document.getElementById('new-modal').classList.remove('hidden');
 }
@@ -484,9 +487,9 @@ async function createPurchase() {
     items: document.getElementById('new-memo').value,
     total: 0, total_paid: 0, purchase_status: 'draft', status: '진행중',
   };
-  await fetch('/api/purchases', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  await api.post('/api/purchases', body);
   closeNewModal();
-  purchases = await fetch('/api/purchases').then(r=>r.json());
+  purchases = await api.get('/api/purchases');
   purchases.sort((a,b) => b.id - a.id);
   renderList();
   if (purchases.length) selectPurchase(purchases[0].id);
