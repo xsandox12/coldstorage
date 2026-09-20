@@ -1,18 +1,42 @@
 #!/usr/bin/env bash
 # ColdStorage Master — API 스모크 테스트
 #
-#   ./test/smoke.sh                       # localhost:9000
-#   BASE=https://coldstorage.agonyang.com ./test/smoke.sh
+#   ./test/smoke.sh                       # 일회용 DB로 서버를 직접 띄워 테스트 (기본)
+#   BASE=https://coldstorage.agonyang.com ./test/smoke.sh   # 기존 서버 대상
 #   PASSWORD=xxxx ./test/smoke.sh
 #
-# 테스트 데이터는 no 가 ZZSMOKE- 로 시작하며 끝나면 지운다.
+# BASE 를 주지 않으면 임시 디렉토리에 새 DB 를 만들어 거기에만 쓴다.
+# 실 데이터(data/)는 절대 건드리지 않는다 — 과거에 테스트가 실 테이블을 비운 적이 있다.
 
 set -u
 
-BASE="${BASE:-http://localhost:9000}"
 PASSWORD="${PASSWORD:-0000}"
 CK="$(mktemp)"
 PASS=0; FAIL=0
+OWN_SERVER=""
+TMPDATA=""
+
+cleanup() {
+  if [ -n "$OWN_SERVER" ]; then kill "$OWN_SERVER" 2>/dev/null; sleep 1; fi
+  [ -n "$TMPDATA" ] && rm -rf "$TMPDATA" 2>/dev/null
+  rm -f "$CK"
+  return 0
+}
+trap cleanup EXIT
+
+if [ -z "${BASE:-}" ]; then
+  TMPDATA="$(mktemp -d)"
+  PORT=$(( 19000 + (RANDOM % 1000) ))
+  BASE="http://localhost:$PORT"
+  echo "일회용 서버 기동 — DATA_DIR=$TMPDATA PORT=$PORT"
+  DATA_DIR="$TMPDATA" PORT="$PORT" APP_PASSWORD="$PASSWORD" \
+    node "$(dirname "$0")/../server.js" >"$TMPDATA/server.log" 2>&1 &
+  OWN_SERVER=$!
+  for _ in $(seq 1 30); do
+    curl -s -o /dev/null "$BASE/login.html" && break
+    sleep 0.3
+  done
+fi
 
 red()   { printf '\033[31m%s\033[0m' "$1"; }
 green() { printf '\033[32m%s\033[0m' "$1"; }
@@ -53,10 +77,13 @@ check "  프로세스 생존"           200 "$(alive)"
 # ── P0-3: 민감 파일 ─────────────────────────────────────────
 echo
 echo "[P0-3 민감 파일 차단]"
-check "/data/.session-secret"     403 "$(code "$BASE/data/.session-secret")"
-check "/data/coldstorage.db"      403 "$(code "$BASE/data/coldstorage.db")"
-check "/server.js"                404 "$(code "$BASE/server.js")"
-check "/package.json"             404 "$(code "$BASE/package.json")"
+# 차단은 403(경로 거부) 또는 404(확장자 거부) 어느 쪽이든 통과로 본다
+blocked() { c=$(code "$1"); { [ "$c" = "403" ] || [ "$c" = "404" ]; } && echo blocked || echo "$c"; }
+check "/data/.session-secret"     blocked "$(blocked "$BASE/data/.session-secret")"
+check "/data/coldstorage.db"      blocked "$(blocked "$BASE/data/coldstorage.db")"
+check "/server.js"                blocked "$(blocked "$BASE/server.js")"
+check "/package.json"             blocked "$(blocked "$BASE/package.json")"
+check "/.gitignore"               blocked "$(blocked "$BASE/.gitignore")"
 check "정상 파일은 그대로"        200 "$(code "$BASE/orders.html")"
 
 # ── 테스트 주문 준비 ────────────────────────────────────────
@@ -79,11 +106,20 @@ echo
 echo "[P0-4 출고 이력 보존]"
 check "출고 3개 등록 -> 200"      200 "$(code -X POST "$BASE/api/shipments" -H 'Content-Type: application/json' \
                                         -d "{\"order_id\":$OID,\"item_id\":$IID,\"qty\":3}")"
+# 프론트와 동일하게 기존 품목의 id 를 포함해 보낸다
 check "★ 출고 이력 있는 주문의 품목 저장 -> 200" 200 \
       "$(code -X PUT "$BASE/api/order_items/order/$OID" -H 'Content-Type: application/json' \
-         -d '[{"name":"수정품목","qty":10,"unit_price":2000}]')"
+         -d "[{\"id\":$IID,\"name\":\"수정품목\",\"qty\":10,\"unit_price\":2000}]")"
 check "  프로세스 생존"           200 "$(alive)"
 check "  출고 이력 보존" "1" "$(body "$BASE/api/shipments/order/$OID" | jsonq 'JSON.parse(s).length')"
+check "  품목 id 보존"    "$IID" "$(body "$BASE/api/order_items/order/$OID" | jsonq 'JSON.parse(s)[0].id')"
+check "  shipped_qty 원장에서 재계산" "3" "$(body "$BASE/api/order_items/order/$OID" | jsonq 'JSON.parse(s)[0].shipped_qty')"
+check "  총액 재계산(10*2000)" "20000" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).total")"
+check "출고분보다 적게 줄이면 -> 400" 400 \
+      "$(code -X PUT "$BASE/api/order_items/order/$OID" -H 'Content-Type: application/json' \
+         -d "[{\"id\":$IID,\"name\":\"수정품목\",\"qty\":1,\"unit_price\":2000}]")"
+check "출고 이력 있는 품목 삭제 -> 400" 400 \
+      "$(code -X PUT "$BASE/api/order_items/order/$OID" -H 'Content-Type: application/json' -d '[]')"
 
 # ── P0-6: 입력 검증 ─────────────────────────────────────────
 echo
@@ -113,7 +149,7 @@ echo
 echo "[정리]"
 code -X DELETE "$BASE/api/quotations/$OID" >/dev/null
 check "테스트 주문 삭제됨" "0" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP').length")"
-rm -f "$CK"
+
 
 echo
 printf '통과 %s / 실패 %s\n' "$(green "$PASS")" "$([ "$FAIL" -gt 0 ] && red "$FAIL" || echo "$FAIL")"

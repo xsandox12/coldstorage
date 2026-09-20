@@ -8,9 +8,10 @@ const url      = require('url');
 const crypto   = require('crypto');
 const Database = require('better-sqlite3');
 
-const PORT     = 9000;
+const PORT     = Number(process.env.PORT) || 9000;
 const ROOT     = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+// 테스트가 실 데이터를 건드리지 못하도록 DB 위치를 분리할 수 있게 한다
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'));
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ─── DB 초기화 ──────────────────────────────────────────────
@@ -290,6 +291,91 @@ function recalcPaid(orderId) {
   db.prepare('UPDATE quotations SET total_paid=? WHERE id=?').run(row.s, orderId);
 }
 
+// 주문 총액을 order_items 에서 재계산한다 (캐시 컬럼 드리프트 방지).
+function recalcOrderTotal(orderId) {
+  const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM order_items WHERE order_id=?').get(orderId).s;
+  db.prepare('UPDATE quotations SET total=? WHERE id=?').run(Math.round(total), orderId);
+}
+
+// shipments 원장에서 shipped_qty 를 다시 계산한다. 클라이언트가 보낸 값을 믿지 않는다.
+function recalcShippedQty(orderId) {
+  db.prepare(`UPDATE order_items SET shipped_qty = COALESCE(
+                (SELECT SUM(s.qty) FROM shipments s WHERE s.item_id = order_items.id), 0)
+              WHERE order_id = ?`).run(orderId);
+}
+
+// 품목 저장 — DELETE 후 재INSERT 하면 id 가 바뀌어 shipments.item_id 가 끊기고
+// FK 위반으로 요청이 실패한다. 그래서 id 를 보존하는 diff 방식으로 처리한다.
+// 반환: 오류 메시지(문자열) 또는 null
+function saveOrderItems(orderId, items) {
+  const existing = db.prepare('SELECT id,qty,shipped_qty FROM order_items WHERE order_id=?').all(orderId);
+  const byId = new Map(existing.map(r => [r.id, r]));
+  const keep = new Set();
+
+  for (const item of items) {
+    const qty = Number(item.qty) || 0;
+    const unitPrice = Number(item.unit_price) || 0;
+    if (qty < 0 || unitPrice < 0) return '수량·단가는 음수일 수 없습니다.';
+    const id = Number(item.id);
+    if (byId.has(id)) {
+      // 이미 출고된 수량보다 적게 줄이려 하면 원장과 어긋난다
+      const cur = byId.get(id);
+      if (qty < cur.shipped_qty) {
+        return `이미 ${cur.shipped_qty} 출고된 품목의 수량을 ${qty} 로 줄일 수 없습니다.`;
+      }
+      keep.add(id);
+    }
+  }
+  // 출고 이력이 있는 품목은 삭제할 수 없다
+  for (const row of existing) {
+    if (!keep.has(row.id) && row.shipped_qty > 0) {
+      return '출고 이력이 있는 품목은 삭제할 수 없습니다. 먼저 출고를 취소하세요.';
+    }
+  }
+
+  db.transaction(() => {
+    const del = db.prepare('DELETE FROM order_items WHERE id=?');
+    for (const row of existing) if (!keep.has(row.id)) del.run(row.id);
+
+    const upd = db.prepare(`UPDATE order_items SET name=?,spec=?,unit=?,qty=?,unit_price=?,note=?,sort_order=?
+                            WHERE id=?`);
+    const ins = db.prepare(`INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order)
+                            VALUES (?,?,?,?,?,?,0,?,?)`);
+    items.forEach((item, i) => {
+      const vals = [item.name||'', item.spec||'', item.unit||'EA',
+                    Number(item.qty)||0, Number(item.unit_price)||0, item.note||'', i];
+      const id = Number(item.id);
+      if (keep.has(id)) upd.run(...vals, id);
+      else ins.run(orderId, ...vals);
+    });
+
+    recalcShippedQty(orderId);
+    recalcOrderTotal(orderId);
+    autoStatus(orderId);
+  })();
+  return null;
+}
+
+// 로컬 시간 기준 YYYY-MM-DD. toISOString() 은 UTC 라 KST 새벽에 전날이 찍힌다.
+function today() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// 판매 상태 전이 규칙 — 구매(purchase_status)의 화이트리스트 방식과 맞춘다.
+// cancelled 는 아래 canTransit 에서 별도로 허용한다(완료 건 제외).
+const ORDER_STATUSES = ['draft','ordered','partial','shipped','done','cancelled'];
+const ORDER_FLOW = {
+  draft:     ['ordered','cancelled'],
+  ordered:   ['draft','partial','shipped','done','cancelled'],
+  partial:   ['ordered','shipped','done','cancelled'],
+  shipped:   ['partial','done','cancelled'],
+  done:      [],           // 완료 건은 되돌릴 수 없다
+  cancelled: ['draft'],    // 취소 해제는 초안으로만
+};
+const canTransit = (from, to) => from === to || (ORDER_FLOW[from] || []).includes(to);
+
 function recordStatusChange(orderId, fromStatus, toStatus, reason) {
   db.prepare('INSERT INTO status_changes (order_id,from_status,to_status,reason) VALUES (?,?,?,?)').run(orderId, fromStatus||'', toStatus||'', reason||'');
 }
@@ -523,10 +609,29 @@ async function handle(req, res) {
   // ── /api/shipments ───────────────────────────────────────────
   if (pathname === '/api/shipments' && method === 'POST') {
     const body = await parseBody(req);
-    if (!body || !body.order_id || !body.item_id || !body.qty) return json(res, 400, { ok:false, error:'order_id, item_id, qty 필수' });
-    db.prepare('INSERT INTO shipments (order_id,item_id,qty,shipped_at,note) VALUES (?,?,?,?,?)').run(body.order_id, body.item_id, body.qty, body.shipped_at||'', body.note||'');
-    db.prepare('UPDATE order_items SET shipped_qty = shipped_qty + ? WHERE id=?').run(body.qty, body.item_id);
-    autoStatus(body.order_id);
+    if (!body || !body.order_id || !body.item_id) return json(res, 400, { ok:false, error:'order_id, item_id, qty 필수' });
+    const qty = Number(body.qty);
+    if (!Number.isFinite(qty) || qty <= 0) return json(res, 400, { ok:false, error:'출고 수량은 0보다 커야 합니다.' });
+
+    const order = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(body.order_id);
+    if (!order) return json(res, 400, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    if (['done','cancelled'].includes(order.order_status)) {
+      return json(res, 400, { ok:false, error:'완료·취소된 주문에는 출고를 등록할 수 없습니다.' });
+    }
+    // 품목이 이 주문에 속하는지 확인 — 남의 주문 품목 출고 방지
+    const item = db.prepare('SELECT id,qty,shipped_qty FROM order_items WHERE id=? AND order_id=?').get(body.item_id, body.order_id);
+    if (!item) return json(res, 400, { ok:false, error:'해당 주문의 품목이 아닙니다.' });
+    const remain = item.qty - item.shipped_qty;
+    if (qty > remain + 1e-9) {
+      return json(res, 400, { ok:false, error:`잔여 수량(${remain})을 초과할 수 없습니다.` });
+    }
+
+    db.transaction(() => {
+      db.prepare('INSERT INTO shipments (order_id,item_id,qty,shipped_at,note) VALUES (?,?,?,?,?)')
+        .run(body.order_id, body.item_id, qty, body.shipped_at||'', body.note||'');
+      db.prepare('UPDATE order_items SET shipped_qty = shipped_qty + ? WHERE id=?').run(qty, body.item_id);
+      autoStatus(body.order_id);
+    })();
     return json(res, 200, { ok:true });
   }
 
@@ -544,17 +649,14 @@ async function handle(req, res) {
     if (method === 'GET') return json(res, 200, db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(orderId));
     if (method === 'PUT') {
       const body = await parseBody(req);
-      if (!Array.isArray(body)) return json(res, 400, { ok:false });
-      db.transaction(() => {
-        db.prepare('DELETE FROM order_items WHERE order_id=?').run(orderId);
-        body.forEach((item, i) => {
-          db.prepare('INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order) VALUES (?,?,?,?,?,?,?,?,?)').run(
-            orderId, item.name||'', item.spec||'', item.unit||'EA', item.qty||0, item.unit_price||0, item.shipped_qty||0, item.note||'', i);
-        });
-      })();
-      // 총액 재계산
-      const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM order_items WHERE order_id=?').get(orderId).s;
-      db.prepare('UPDATE quotations SET total=? WHERE id=?').run(total, orderId);
+      if (!Array.isArray(body)) return json(res, 400, { ok:false, error:'품목 배열이 필요합니다.' });
+      const order = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(orderId);
+      if (!order) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+      if (['done','cancelled'].includes(order.order_status)) {
+        return json(res, 400, { ok:false, error:'완료·취소된 주문의 품목은 수정할 수 없습니다.' });
+      }
+      const err = saveOrderItems(orderId, body);
+      if (err) return json(res, 400, { ok:false, error: err });
       return json(res, 200, { ok:true });
     }
   }
@@ -565,9 +667,18 @@ async function handle(req, res) {
     const id   = parseInt(mQStatus[1]);
     const body = await parseBody(req);
     if (!body || !body.status) return json(res, 400, { ok:false, error:'status 필수' });
+    if (!ORDER_STATUSES.includes(body.status)) return json(res, 400, { ok:false, error:'알 수 없는 상태입니다.' });
+    // 취소는 사유를 남기는 전용 경로(/cancel)로만 — 사유 없는 취소건이 생기지 않도록
+    if (body.status === 'cancelled') return json(res, 400, { ok:false, error:'취소는 /cancel 을 사용하세요.' });
     const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
-    db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run(body.status, id);
-    if (current) recordStatusChange(id, current.order_status, body.status, body.reason||'');
+    if (!current) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    if (!canTransit(current.order_status, body.status)) {
+      return json(res, 400, { ok:false, error:`${current.order_status} → ${body.status} 로는 변경할 수 없습니다.` });
+    }
+    db.transaction(() => {
+      db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run(body.status, id);
+      recordStatusChange(id, current.order_status, body.status, body.reason||'');
+    })();
     return json(res, 200, { ok:true });
   }
 
@@ -577,9 +688,32 @@ async function handle(req, res) {
     const id   = parseInt(mQCancel[1]);
     const body = await parseBody(req);
     const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
-    const now = new Date().toISOString().slice(0,10);
-    db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?').run('cancelled', now, body?.reason||'', id);
-    if (current) recordStatusChange(id, current.order_status, 'cancelled', body?.reason||'');
+    if (!current) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    if (current.order_status === 'done') return json(res, 400, { ok:false, error:'완료된 주문은 취소할 수 없습니다.' });
+    if (current.order_status === 'cancelled') return json(res, 400, { ok:false, error:'이미 취소된 주문입니다.' });
+    const reason = (body?.reason || '').trim();
+    if (!reason) return json(res, 400, { ok:false, error:'취소 사유를 입력하세요.' });
+    db.transaction(() => {
+      db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?')
+        .run('cancelled', today(), reason, id);
+      recordStatusChange(id, current.order_status, 'cancelled', reason);
+    })();
+    return json(res, 200, { ok:true });
+  }
+
+  // ── /api/quotations/:id/uncancel — 취소 해제 ─────────────────
+  const mQUncancel = pathname.match(/^\/api\/quotations\/(\d+)\/uncancel$/);
+  if (mQUncancel && method === 'PATCH') {
+    const id = parseInt(mQUncancel[1]);
+    const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
+    if (!current) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    if (current.order_status !== 'cancelled') return json(res, 400, { ok:false, error:'취소 상태가 아닙니다.' });
+    db.transaction(() => {
+      db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?')
+        .run('draft', '', '', id);
+      recordStatusChange(id, 'cancelled', 'draft', '취소 해제');
+      autoStatus(id);   // 출고 이력이 있으면 실제 상태로 되돌린다
+    })();
     return json(res, 200, { ok:true });
   }
 
