@@ -516,10 +516,10 @@ function itemRow(it, i, isDone) {
     <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
   </tr>`;
   return `<tr class="item-row border-t border-slate-50" data-idx="${i}">
-    <td class="p-1"><input value="${it.name||''}" placeholder="품목명" onchange="curItems[${i}].name=this.value"></td>
-    <td class="p-1"><input value="${it.spec||''}" placeholder="규격" onchange="curItems[${i}].spec=this.value"></td>
+    <td class="p-1"><input value="${esc(it.name||'')}" placeholder="품목명" onchange="curItems[${i}].name=this.value"></td>
+    <td class="p-1"><input value="${esc(it.spec||'')}" placeholder="규격" onchange="curItems[${i}].spec=this.value"></td>
     <td class="p-1"><input type="number" value="${it.qty||0}" min="0" step="0.01" style="width:60px" onchange="curItems[${i}].qty=parseFloat(this.value)||0;updateAmounts()"></td>
-    <td class="p-1"><input value="${it.unit||'EA'}" style="width:50px" onchange="curItems[${i}].unit=this.value"></td>
+    <td class="p-1"><input value="${esc(it.unit||'EA')}" style="width:50px" onchange="curItems[${i}].unit=this.value"></td>
     <td class="p-1"><input type="number" value="${it.unit_price||0}" min="0" style="width:90px;text-align:right" onchange="curItems[${i}].unit_price=parseInt(this.value)||0;updateAmounts()"></td>
     <td class="p-2 text-right item-amt">${amt.toLocaleString()}</td>
     <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
@@ -807,10 +807,10 @@ function renderComposeExtraItems() {
       <th class="p-2 text-right w-24">단가</th><th class="p-2 w-6"></th>
     </tr></thead>
     <tbody>${composeExtraItems.map((it,i)=>`<tr class="border-t border-slate-50">
-      <td class="p-1"><input value="${it.name||''}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].name=this.value"></td>
-      <td class="p-1"><input value="${it.spec||''}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].spec=this.value"></td>
+      <td class="p-1"><input value="${esc(it.name||'')}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].name=this.value"></td>
+      <td class="p-1"><input value="${esc(it.spec||'')}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].spec=this.value"></td>
       <td class="p-1"><input type="number" value="${it.qty||0}" class="w-full border border-slate-200 rounded px-2 py-1 text-right" onchange="composeExtraItems[${i}].qty=parseFloat(this.value)||0"></td>
-      <td class="p-1"><input value="${it.unit||'EA'}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].unit=this.value"></td>
+      <td class="p-1"><input value="${esc(it.unit||'EA')}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].unit=this.value"></td>
       <td class="p-1"><input type="number" value="${it.unit_price||0}" class="w-full border border-slate-200 rounded px-2 py-1 text-right" onchange="composeExtraItems[${i}].unit_price=parseInt(this.value)||0"></td>
       <td class="p-1 text-center"><button onclick="composeExtraItems.splice(${i},1);renderComposeExtraItems()" class="text-slate-300 hover:text-red-400">×</button></td>
     </tr>`).join('')}</tbody>

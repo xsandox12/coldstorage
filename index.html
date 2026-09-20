@@ -137,10 +137,10 @@ async function init() {
       return `<a href="${link}" class="flex items-center gap-3 p-3 hover:bg-slate-50 ${item.urgency==='EMERGENCY'?'border-l-2 border-red-500':''}">
         <div class="w-8 h-8 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-base shrink-0">${st.icon}</div>
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium truncate">${item.customer||item.cust_name||'—'}</div>
-          <div class="text-xs text-slate-400 truncate">${desc}</div>
+          <div class="text-sm font-medium truncate">${esc(item.customer||item.cust_name||'—')}</div>
+          <div class="text-xs text-slate-400 truncate">${esc(desc)}</div>
         </div>
-        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${st.badge} shrink-0">${item.tag}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${st.badge} shrink-0">${esc(item.tag)}</span>
       </a>`;
     }).join('');
   }
@@ -154,8 +154,8 @@ async function init() {
       const unpaid = (o.total||0) - (o.total_paid||0);
       return `<a href="/orders.html" class="flex items-center gap-3 p-3 hover:bg-slate-50">
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium truncate">${name}</div>
-          <div class="text-xs text-slate-400">${o.no||'#'+o.id} · ${o.date||''}</div>
+          <div class="text-sm font-medium truncate">${esc(name)}</div>
+          <div class="text-xs text-slate-400">${esc(o.no||'#'+o.id)} · ${esc(o.date||'')}</div>
         </div>
         <div class="text-right shrink-0">
           <div class="text-xs font-semibold">${(o.total||0).toLocaleString()}원</div>

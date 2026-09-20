@@ -253,7 +253,7 @@ function selCat(c1) { selCat1 = c1; selCat2 = null; renderAll(); }
 function setSubCat(c2) { selCat2 = c2; renderAll(); }
 
 function updateDL() {
-  const fill = (id, vals) => { const dl = document.getElementById(id); if (dl) dl.innerHTML = vals.map(v => `<option value="${v}">`).join(''); };
+  const fill = (id, vals) => { const dl = document.getElementById(id); if (dl) dl.innerHTML = vals.map(v => `<option value="${esc(v)}">`).join(''); };
   fill('dl-cat1', uniq(products.map(p => p.cat1)));
   fill('dl-cat2', uniq(products.map(p => p.cat2)));
   fill('dl-cat3', uniq(products.map(p => p.cat3)));
