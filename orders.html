@@ -364,15 +364,20 @@ async function selectOrder(id) {
           <button onclick="openDrawingModal(${order.id})" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">✏️ 도면 연동</button>
         </div>
       </div>
-      <!-- 금액 요약 -->
-      <div class="grid grid-cols-4 gap-3 mt-4">
+      <!-- 금액 요약 — 공급가는 total/1.1 로 역산하던 값이라 실제와 달랐다.
+           이제 서버가 품목에서 계산한 supply_amount/vat_amount 를 그대로 쓴다. -->
+      <div class="grid grid-cols-5 gap-2 mt-4">
         <div class="bg-slate-50 rounded-lg p-2 text-center">
-          <div class="text-xs text-slate-400">공급가</div>
-          <div class="text-sm font-semibold">${Math.round((order.total||0)/1.1).toLocaleString()}</div>
+          <div class="text-xs text-slate-400">공급가액</div>
+          <div class="text-sm font-semibold">${num(order.supply_amount)}</div>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-2 text-center">
+          <div class="text-xs text-slate-400">부가세${order.exempt_amount ? ` <span class="text-slate-300">·면세 ${num(order.exempt_amount)}</span>` : ''}</div>
+          <div class="text-sm font-semibold">${num(order.vat_amount)}</div>
         </div>
         <div class="bg-slate-50 rounded-lg p-2 text-center">
           <div class="text-xs text-slate-400">합계</div>
-          <div class="text-sm font-semibold">${(order.total||0).toLocaleString()}</div>
+          <div class="text-sm font-semibold">${num(order.total)}</div>
         </div>
         <div class="bg-green-50 rounded-lg p-2 text-center">
           <div class="text-xs text-slate-400">입금</div>
@@ -514,7 +519,17 @@ function renderItemsTab(tc) {
   const isDone = order?.order_status === 'done' || order?.order_status === 'cancelled';
   tc.innerHTML = `
     <div class="flex items-center justify-between mb-3">
-      <span class="text-sm font-semibold">품목 목록</span>
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold">품목 목록</span>
+        <label class="text-xs text-slate-500 flex items-center gap-1">
+          단가 기준
+          <select ${isDone ? 'disabled' : ''} onchange="changeTaxMode(this)"
+                  class="text-xs border border-slate-200 rounded px-2 py-1 bg-white disabled:bg-slate-50">
+            <option value="EXCLUSIVE"${order?.vat_mode !== 'INCLUSIVE' ? ' selected' : ''}>부가세 별도</option>
+            <option value="INCLUSIVE"${order?.vat_mode === 'INCLUSIVE' ? ' selected' : ''}>부가세 포함</option>
+          </select>
+        </label>
+      </div>
       ${!isDone ? `<div class="flex gap-2">
         <button onclick="addItemRow()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50">+ 행 추가</button>
         <button onclick="guard(this, saveItems)" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
@@ -530,6 +545,7 @@ function renderItemsTab(tc) {
             <th class="p-2 text-left font-medium w-14">단위</th>
             <th class="p-2 text-right font-medium w-24">단가</th>
             <th class="p-2 text-right font-medium w-24">금액</th>
+            <th class="p-2 text-center font-medium w-12">면세</th>
             <th class="p-2 text-right font-medium w-16">출고</th>
             ${!isDone ? '<th class="p-2 w-8"></th>' : ''}
           </tr>
@@ -537,16 +553,55 @@ function renderItemsTab(tc) {
         <tbody id="items-tbody">
           ${curItems.map((it,i) => itemRow(it, i, isDone)).join('')}
         </tbody>
-        <tfoot class="border-t border-slate-100">
-          <tr>
-            <td colspan="6" class="p-2 text-right font-semibold text-slate-600">합계</td>
-            <td class="p-2 text-right font-bold">${curItems.reduce((s,it)=>s+(it.qty*it.unit_price),0).toLocaleString()}원</td>
-            ${!isDone ? '<td></td>' : ''}
-          </tr>
-        </tfoot>
       </table>
+      <div class="border-t border-slate-100 bg-slate-50 p-3" id="items-summary">${itemsSummary(order)}</div>
     </div>
   `;
+}
+
+/* 합계는 서버 계산과 같은 규칙으로 화면에서도 보여준다.
+ * 부가세는 문서 단위로 한 번만 계산한다 — 행별 세액을 합산하면
+ * 세금계산서와 거래명세서가 1원씩 어긋난다. */
+function calcTotals(order) {
+  const rate = Number(order?.vat_rate);
+  const vatRate = Number.isFinite(rate) && rate >= 0 ? rate : 0.1;
+  const inclusive = order?.vat_mode === 'INCLUSIVE';
+  let taxable = 0, exempt = 0;
+  for (const it of curItems) {
+    const amt = Math.round((Number(it.qty)||0) * (Number(it.unit_price)||0));
+    if (it.tax_free) exempt += amt; else taxable += amt;
+  }
+  let supply, vat;
+  if (inclusive) { supply = Math.round(taxable / (1 + vatRate)); vat = taxable - supply; }
+  else           { supply = taxable; vat = Math.floor(supply * vatRate); }
+  return { supply, vat, exempt, total: inclusive ? taxable + exempt : supply + exempt + vat, vatRate, inclusive };
+}
+
+function itemsSummary(order) {
+  const t = calcTotals(order);
+  const saved = (order?.total || 0) !== t.total;
+  return `
+    <div class="flex justify-end gap-6 text-xs">
+      <div><span class="text-slate-400">공급가액</span> <span class="font-semibold ml-1">${num(t.supply)}원</span></div>
+      ${t.exempt ? `<div><span class="text-slate-400">면세</span> <span class="font-semibold ml-1">${num(t.exempt)}원</span></div>` : ''}
+      <div><span class="text-slate-400">부가세 (${Math.round(t.vatRate*1000)/10}%)</span> <span class="font-semibold ml-1">${num(t.vat)}원</span></div>
+      <div><span class="text-slate-400">합계</span> <span class="font-bold text-sm ml-1">${num(t.total)}원</span></div>
+    </div>
+    ${saved ? '<div class="text-right text-xs text-orange-500 mt-1">저장하지 않은 변경이 있습니다.</div>' : ''}`;
+}
+
+/** 과세 방식 변경 — 서버가 다시 계산해 준다 */
+async function changeTaxMode(sel) {
+  const prev = orders.find(o => o.id === curId)?.vat_mode || 'EXCLUSIVE';
+  sel.disabled = true;
+  const ok = await tryApi(() => api.patch(`/api/quotations/${curId}/tax`, { vat_mode: sel.value }),
+                          '과세 방식을 변경했습니다.');
+  sel.disabled = false;
+  if (!ok) { sel.value = prev; return; }
+  orders = await api.get('/api/quotations');
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(curId);
 }
 
 function itemRow(it, i, isDone) {
@@ -556,7 +611,8 @@ function itemRow(it, i, isDone) {
     <td class="p-2 text-right">${qty(it.qty)}</td><td class="p-2">${esc(it.unit)}</td>
     <td class="p-2 text-right">${(it.unit_price||0).toLocaleString()}</td>
     <td class="p-2 text-right">${amt.toLocaleString()}</td>
-    <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
+    <td class="p-2 text-center">${it.tax_free ? '면세' : ''}</td>
+    <td class="p-2 text-right text-blue-600">${qty(it.shipped_qty)}</td>
   </tr>`;
   return `<tr class="item-row border-t border-slate-50" data-idx="${i}">
     <td class="p-1"><input value="${esc(it.name||'')}" placeholder="품목명" onchange="curItems[${i}].name=this.value"></td>
@@ -565,7 +621,10 @@ function itemRow(it, i, isDone) {
     <td class="p-1"><input value="${esc(it.unit||'EA')}" style="width:50px" onchange="curItems[${i}].unit=this.value"></td>
     <td class="p-1"><input type="number" value="${it.unit_price||0}" min="0" style="width:90px;text-align:right" onchange="curItems[${i}].unit_price=parseInt(this.value)||0;updateAmounts()"></td>
     <td class="p-2 text-right item-amt">${amt.toLocaleString()}</td>
-    <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
+    <td class="p-2 text-center"><input type="checkbox"${it.tax_free ? ' checked' : ''}
+        title="면세 품목 — 과세표준에서 제외됩니다"
+        onchange="curItems[${i}].tax_free = this.checked ? 1 : 0; updateAmounts()"></td>
+    <td class="p-2 text-right text-blue-600">${qty(it.shipped_qty)}</td>
     <td class="p-1 text-center"><button onclick="removeItem(${i})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
   </tr>`;
 }
@@ -573,12 +632,14 @@ function itemRow(it, i, isDone) {
 function updateAmounts() {
   document.querySelectorAll('.item-row').forEach((tr,i) => {
     const it = curItems[i];
-    if (it) tr.querySelector('.item-amt').textContent = ((it.qty||0)*(it.unit_price||0)).toLocaleString();
+    if (it) tr.querySelector('.item-amt').textContent = Math.round((it.qty||0)*(it.unit_price||0)).toLocaleString();
   });
+  const box = document.getElementById('items-summary');
+  if (box) box.innerHTML = itemsSummary(orders.find(o => o.id === curId));
 }
 
 function addItemRow() {
-  curItems.push({ name:'', spec:'', unit:'EA', qty:0, unit_price:0, shipped_qty:0, note:'' });
+  curItems.push({ name:'', spec:'', unit:'EA', qty:0, unit_price:0, shipped_qty:0, note:'', tax_free:0 });
   renderTab('items');
 }
 
@@ -599,6 +660,11 @@ async function saveItems() {
   }
   const shipped = curItems.filter(it => (it.shipped_qty || 0) > 0);
   if (shipped.length && !confirm(`출고 이력이 있는 품목 ${shipped.length}건이 포함돼 있습니다.\n저장하시겠습니까?`)) return;
+  // 과거 이관 주문은 품목 없이 금액만 있다. 빈 채로 저장하면 금액이 0 이 된다.
+  const order = orders.find(o => o.id === curId);
+  if (!curItems.length && (order?.total || 0) > 0 &&
+      !confirm(`이 주문에는 품목 내역이 없지만 금액 ${won(order.total)} 이 기록돼 있습니다.\n` +
+               `빈 목록으로 저장하면 금액이 0원이 되고 미수금도 사라집니다.\n\n계속할까요?`)) return;
   if (!await tryApi(() => api.put(`/api/order_items/order/${curId}`, curItems), '저장됐습니다.')) return;
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);

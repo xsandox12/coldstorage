@@ -118,7 +118,9 @@ check "  프로세스 생존"           200 "$(alive)"
 check "  출고 이력 보존" "1" "$(body "$BASE/api/shipments/order/$OID" | jsonq 'JSON.parse(s).length')"
 check "  품목 id 보존"    "$IID" "$(body "$BASE/api/order_items/order/$OID" | jsonq 'JSON.parse(s)[0].id')"
 check "  shipped_qty 원장에서 재계산" "3" "$(body "$BASE/api/order_items/order/$OID" | jsonq 'JSON.parse(s)[0].shipped_qty')"
-check "  총액 재계산(10*2000)" "20000" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).total")"
+# total 은 부가세 포함 합계다 (total_paid 가 실입금액이라 세포함이어야 미수금이 맞는다)
+check "  공급가액 재계산(10*2000)" "20000" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).supply_amount")"
+check "  합계는 부가세 포함 22000"  "22000" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).total")"
 check "출고분보다 적게 줄이면 -> 400" 400 \
       "$(code -X PUT "$BASE/api/order_items/order/$OID" -H 'Content-Type: application/json' \
          -d "[{\"id\":$IID,\"name\":\"수정품목\",\"qty\":1,\"unit_price\":2000}]")"
@@ -204,6 +206,52 @@ code -X DELETE "$BASE/api/quotations/$OID2" >/dev/null
 
 check "대시보드 내부메모 미노출"  "true" \
       "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
+
+# ── Phase 2: 부가세 ─────────────────────────────────────────
+echo
+echo "[Phase 2 부가세]"
+STAMPV="ZZVAT-$$"
+body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+     -d "{\"no\":\"$STAMPV\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\",\"order_status\":\"draft\",\"total\":0,\"total_paid\":0}" >/dev/null
+VID=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMPV').pop().id")
+vq() { body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$VID).$1"; }
+
+body -X PUT "$BASE/api/order_items/order/$VID" -H 'Content-Type: application/json' \
+     -d '[{"name":"과세품","qty":3,"unit_price":10000}]' >/dev/null
+check "EXCLUSIVE 공급가액 30000"  30000 "$(vq supply_amount)"
+check "  부가세 3000"             3000  "$(vq vat_amount)"
+check "  합계 33000"              33000 "$(vq total)"
+
+check "INCLUSIVE 전환 -> 200"     200 "$(code -X PATCH "$BASE/api/quotations/$VID/tax" \
+                                        -H 'Content-Type: application/json' -d '{"vat_mode":"INCLUSIVE"}')"
+check "  합계가 입력합계 30000"   30000 "$(vq total)"
+check "★ 공급가액+부가세 == 합계 (1원 오차 없음)" "true" \
+      "$(body "$BASE/api/quotations" | jsonq "(q=>q.supply_amount+q.vat_amount===q.total)(JSON.parse(s).find(x=>x.id===$VID))")"
+
+IID2=$(body "$BASE/api/order_items/order/$VID" | jsonq 'JSON.parse(s)[0].id')
+body -X PUT "$BASE/api/order_items/order/$VID" -H 'Content-Type: application/json' \
+     -d "[{\"id\":$IID2,\"name\":\"과세품\",\"qty\":3,\"unit_price\":10000},{\"name\":\"면세품\",\"qty\":1,\"unit_price\":5000,\"tax_free\":1}]" >/dev/null
+check "면세 5000 은 과세표준 제외"  5000 "$(vq exempt_amount)"
+check "  부가세는 그대로 2727"      2727 "$(vq vat_amount)"
+check "  합계 35000"                35000 "$(vq total)"
+
+body -X PATCH "$BASE/api/quotations/$VID/tax" -H 'Content-Type: application/json' -d '{"vat_mode":"EXCLUSIVE"}' >/dev/null
+check "영세율 적용 -> 부가세 0"    0 "$(body -X PATCH "$BASE/api/quotations/$VID/tax" \
+                                       -H 'Content-Type: application/json' -d '{"vat_rate":0}' | jsonq 'JSON.parse(s).vat_amount')"
+check "세율 10 은 거부 -> 400"     400 "$(code -X PATCH "$BASE/api/quotations/$VID/tax" \
+                                        -H 'Content-Type: application/json' -d '{"vat_rate":10}')"
+check "잘못된 과세방식 -> 400"     400 "$(code -X PATCH "$BASE/api/quotations/$VID/tax" \
+                                        -H 'Content-Type: application/json' -d '{"vat_mode":"__x__"}')"
+
+# 소수 수량 — qty 가 REAL 이라 SUM(qty*unit_price) 는 INTEGER 컬럼에 REAL 로 들어간다
+body -X PATCH "$BASE/api/quotations/$VID/tax" -H 'Content-Type: application/json' -d '{"vat_rate":0.1}' >/dev/null
+body -X PUT "$BASE/api/order_items/order/$VID" -H 'Content-Type: application/json' \
+     -d '[{"name":"소수","qty":1.5,"unit_price":33333}]' >/dev/null
+check "★ 소수 수량이어도 금액이 정수" "true" \
+      "$(body "$BASE/api/quotations" | jsonq "(q=>Number.isInteger(q.total)&&Number.isInteger(q.supply_amount)&&Number.isInteger(q.vat_amount))(JSON.parse(s).find(x=>x.id===$VID))")"
+check "  합계 = 공급+부가세"        "true" \
+      "$(body "$BASE/api/quotations" | jsonq "(q=>q.supply_amount+q.vat_amount===q.total)(JSON.parse(s).find(x=>x.id===$VID))")"
+code -X DELETE "$BASE/api/quotations/$VID" >/dev/null
 
 # ── Phase 1: 계정 ───────────────────────────────────────────
 echo

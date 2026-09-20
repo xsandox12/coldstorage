@@ -208,6 +208,25 @@ for (const sql of [
   `ALTER TABLE purchases ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN assignee_id INTEGER`,
+  /* 부가세 — total 은 "부가세 포함 합계" 로 확정한다.
+   * 미수금이 total - total_paid 이고 total_paid 는 실입금액(세포함)이므로
+   * total 을 공급가액으로 두면 미수금이 전건 10% 어긋난다. */
+  `ALTER TABLE quotations ADD COLUMN supply_amount INTEGER DEFAULT 0`,
+  `ALTER TABLE quotations ADD COLUMN exempt_amount INTEGER DEFAULT 0`,
+  `ALTER TABLE quotations ADD COLUMN vat_amount    INTEGER DEFAULT 0`,
+  `ALTER TABLE quotations ADD COLUMN vat_mode      TEXT DEFAULT 'EXCLUSIVE'`,
+  `ALTER TABLE quotations ADD COLUMN vat_rate      REAL DEFAULT 0.1`,
+  `ALTER TABLE purchases  ADD COLUMN supply_amount INTEGER DEFAULT 0`,
+  `ALTER TABLE purchases  ADD COLUMN exempt_amount INTEGER DEFAULT 0`,
+  `ALTER TABLE purchases  ADD COLUMN vat_amount    INTEGER DEFAULT 0`,
+  `ALTER TABLE purchases  ADD COLUMN vat_mode      TEXT DEFAULT 'EXCLUSIVE'`,
+  `ALTER TABLE purchases  ADD COLUMN vat_rate      REAL DEFAULT 0.1`,
+  // 행 금액을 정수로 확정해 둔다. qty 가 REAL 이라 SUM(qty*unit_price) 는
+  // INTEGER 컬럼에 REAL 로 들어가고, 거기서 뽑은 세액은 처음부터 틀린다.
+  `ALTER TABLE order_items    ADD COLUMN amount   INTEGER DEFAULT 0`,
+  `ALTER TABLE order_items    ADD COLUMN tax_free INTEGER DEFAULT 0`,
+  `ALTER TABLE purchase_items ADD COLUMN amount   INTEGER DEFAULT 0`,
+  `ALTER TABLE purchase_items ADD COLUMN tax_free INTEGER DEFAULT 0`,
 ]) { try { db.exec(sql) } catch {} }
 
 // 인덱스 — PK/UNIQUE 외에 하나도 없어 목록·조인이 전부 full scan 이었다
@@ -234,6 +253,33 @@ db.exec(`
   DELETE FROM status_changes    WHERE order_id NOT IN (SELECT id FROM quotations);
   DELETE FROM quotation_sources WHERE order_id NOT IN (SELECT id FROM quotations);
 `);
+
+/* 일회성 데이터 마이그레이션. ALTER 는 재적용해도 안전하지만 값 채우기는 아니다
+ * — 두 번 돌면 사용자가 바꿔 둔 과세구분을 덮어쓴다. user_version 으로 한 번만. */
+const SCHEMA_VERSION = 1;
+if ((db.pragma('user_version', { simple: true }) || 0) < 1) {
+  db.transaction(() => {
+    // 기존 행 금액을 정수로 확정
+    for (const t of ['order_items', 'purchase_items']) {
+      db.exec(`UPDATE ${t} SET amount = CAST(ROUND(qty * unit_price) AS INTEGER) WHERE amount = 0`);
+    }
+    /* 기존 주문·구매의 total 이 세전인지 세후인지는 기록이 없다. total 을 그대로
+     * 보존하는 쪽을 택한다 — 미수금(total - total_paid)이 어긋나면 안 된다.
+     * 세포함으로 보고 공급가액을 역산하고, 부가세는 반드시 차액으로 구한다
+     * (따로 계산하면 supply + vat != total 이 되어 1원씩 깨진다). */
+    for (const t of ['quotations', 'purchases']) {
+      db.exec(`UPDATE ${t} SET
+                 vat_mode      = 'INCLUSIVE',
+                 vat_rate      = 0.1,
+                 supply_amount = CAST(ROUND(total / 1.1) AS INTEGER),
+                 vat_amount    = total - CAST(ROUND(total / 1.1) AS INTEGER),
+                 exempt_amount = 0
+               WHERE total > 0 AND supply_amount = 0 AND vat_amount = 0 AND exempt_amount = 0`);
+    }
+  })();
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  console.log('부가세 컬럼 마이그레이션 완료 (기존 금액은 세포함으로 보존).');
+}
 
 // JSON → SQLite 최초 마이그레이션
 (function migrate() {
@@ -395,10 +441,41 @@ const LINE_ITEM = {
   },
 };
 
-// 부모의 total 을 품목에서 재계산한다 (캐시 컬럼 드리프트 방지).
+/* 부모의 금액을 품목에서 재계산한다 (캐시 컬럼 드리프트 방지).
+ *
+ * 반올림 규칙 — 행 금액은 행 단위 반올림, 부가세는 문서 단위로 한 번만.
+ * 행별 세액을 합산하면 세금계산서와 거래명세서가 1원씩 어긋난다.
+ * 면세 행(tax_free=1)은 과세표준에서 제외한다. 영세율은 vat_rate=0 으로 흡수한다.
+ *
+ * total 은 항상 "부가세 포함 합계" 다. total_paid 는 실입금액(세포함)이므로
+ * total 을 공급가액으로 두면 미수금이 전건 어긋난다. */
 function recalcTotal(cfg, parentId) {
-  const s = db.prepare(`SELECT COALESCE(SUM(qty*unit_price),0) as s FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).get(parentId).s;
-  db.prepare(`UPDATE ${cfg.parent} SET total=? WHERE id=?`).run(Math.round(s), parentId);
+  const p = db.prepare(`SELECT vat_mode, vat_rate FROM ${cfg.parent} WHERE id=?`).get(parentId);
+  if (!p) return;
+  const rate = Number(p.vat_rate);
+  const vatRate = Number.isFinite(rate) && rate >= 0 ? rate : 0.1;
+  const inclusive = p.vat_mode === 'INCLUSIVE';
+
+  const r = db.prepare(`SELECT
+      COALESCE(SUM(CASE WHEN tax_free=1 THEN 0 ELSE amount END),0) AS taxable,
+      COALESCE(SUM(CASE WHEN tax_free=1 THEN amount ELSE 0 END),0) AS exempt
+    FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).get(parentId);
+
+  let supply, vat, total;
+  if (inclusive) {
+    // 입력 단가가 세포함. 공급가액을 역산하고 부가세는 반드시 차액으로 —
+    // 따로 구하면 supply + vat != 입력합계 가 되어 1원씩 깨진다.
+    supply = Math.round(r.taxable / (1 + vatRate));
+    vat    = r.taxable - supply;
+    total  = r.taxable + r.exempt;
+  } else {
+    supply = r.taxable;
+    vat    = Math.floor(supply * vatRate);
+    total  = supply + r.exempt + vat;
+  }
+  db.prepare(`UPDATE ${cfg.parent}
+              SET total=?, supply_amount=?, vat_amount=?, exempt_amount=? WHERE id=?`)
+    .run(total, supply, vat, r.exempt, parentId);
 }
 
 // 원장에서 출고/입고 수량을 다시 계산한다. 클라이언트가 보낸 값을 믿지 않는다.
@@ -439,12 +516,15 @@ function saveLineItems(cfg, parentId, items) {
     const del = db.prepare(`DELETE FROM ${cfg.items} WHERE id=?`);
     for (const row of existing) if (!keep.has(row.id)) del.run(row.id);
 
-    const upd = db.prepare(`UPDATE ${cfg.items} SET name=?,spec=?,unit=?,qty=?,unit_price=?,note=?,sort_order=? WHERE id=?`);
-    const ins = db.prepare(`INSERT INTO ${cfg.items} (${cfg.parentCol},name,spec,unit,qty,unit_price,${cfg.doneCol},note,sort_order)
-                            VALUES (?,?,?,?,?,?,0,?,?)`);
+    const upd = db.prepare(`UPDATE ${cfg.items} SET name=?,spec=?,unit=?,qty=?,unit_price=?,note=?,sort_order=?,amount=?,tax_free=? WHERE id=?`);
+    const ins = db.prepare(`INSERT INTO ${cfg.items} (${cfg.parentCol},name,spec,unit,qty,unit_price,${cfg.doneCol},note,sort_order,amount,tax_free)
+                            VALUES (?,?,?,?,?,?,0,?,?,?,?)`);
     items.forEach((item, i) => {
-      const vals = [item.name||'', item.spec||'', item.unit||'EA',
-                    Number(item.qty)||0, Number(item.unit_price)||0, item.note||'', i];
+      const q = Number(item.qty) || 0, up = Number(item.unit_price) || 0;
+      // 행 금액은 여기서 정수로 확정한다. qty 가 REAL 이라 SQL 에서 SUM(qty*unit_price)
+      // 하면 INTEGER 컬럼에 REAL 이 들어가고 거기서 뽑은 세액이 처음부터 틀린다.
+      const vals = [item.name||'', item.spec||'', item.unit||'EA', q, up, item.note||'', i,
+                    Math.round(q * up), item.tax_free ? 1 : 0];
       const id = Number(item.id);
       if (keep.has(id)) upd.run(...vals, id);
       else ins.run(parentId, ...vals);
@@ -996,6 +1076,35 @@ async function handle(req, res) {
     return json(res, 200, { ok:true });
   }
 
+  // ── PATCH /api/quotations/:id/tax, /api/purchases/:id/tax ────
+  const mTax = pathname.match(/^\/api\/(quotations|purchases)\/(\d+)\/tax$/);
+  if (mTax && method === 'PATCH') {
+    const cfg  = mTax[1] === 'quotations' ? LINE_ITEM.sales : LINE_ITEM.purchase;
+    const id   = parseInt(mTax[2]);
+    const body = await parseBody(req);
+    const row  = db.prepare(`SELECT id FROM ${cfg.parent} WHERE id=?`).get(id);
+    if (!row) return json(res, 404, { ok:false, error:'대상을 찾을 수 없습니다.' });
+    const mode = body?.vat_mode;
+    if (mode !== undefined && !['EXCLUSIVE','INCLUSIVE'].includes(mode)) {
+      return json(res, 400, { ok:false, error:'과세 방식은 EXCLUSIVE 또는 INCLUSIVE 여야 합니다.' });
+    }
+    let rate;
+    if (body?.vat_rate !== undefined) {
+      rate = Number(body.vat_rate);
+      // 0(영세율) ~ 1 만 허용. 10 을 넣으면 세액이 원금의 10배가 된다.
+      if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+        return json(res, 400, { ok:false, error:'세율은 0 이상 1 이하여야 합니다. (10% = 0.1)' });
+      }
+    }
+    db.transaction(() => {
+      if (mode !== undefined) db.prepare(`UPDATE ${cfg.parent} SET vat_mode=? WHERE id=?`).run(mode, id);
+      if (rate !== undefined) db.prepare(`UPDATE ${cfg.parent} SET vat_rate=? WHERE id=?`).run(rate, id);
+      recalcTotal(cfg, id);
+    })();
+    return json(res, 200, { ok:true,
+      ...db.prepare(`SELECT total,supply_amount,vat_amount,exempt_amount,vat_mode,vat_rate FROM ${cfg.parent} WHERE id=?`).get(id) });
+  }
+
   // ── PATCH /api/quotations/:id/memo ───────────────────────────
   const mQMemo = pathname.match(/^\/api\/quotations\/(\d+)\/memo$/);
   if (mQMemo && method === 'PATCH') {
@@ -1027,25 +1136,27 @@ async function handle(req, res) {
     );
     const newId = r.lastInsertRowid;
     let sortOrder = 0;
-    const insertItem = db.prepare('INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order) VALUES (?,?,?,?,?,?,?,?,?)');
+    const insertRaw = db.prepare('INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order,amount,tax_free) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+    // 행 금액은 정수로 확정하고 과세구분(tax_free)은 원본에서 승계한다
+    const insertItem = (oid, name, spec, unit, qty, price, done, note, sort, taxFree) =>
+      insertRaw.run(oid, name, spec, unit, qty, price, done, note, sort, Math.round((qty||0)*(price||0)), taxFree ? 1 : 0);
     if (body.items_from?.length) {
       db.transaction(() => {
         for (const src of body.items_from) {
           if (!src.selected_item_ids?.length) continue;
           const ph = src.selected_item_ids.map(()=>'?').join(',');
           const srcItems = db.prepare(`SELECT * FROM order_items WHERE order_id=? AND id IN (${ph}) ORDER BY sort_order`).all(src.quotation_id, ...src.selected_item_ids);
-          for (const it of srcItems) insertItem.run(newId, it.name, it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++);
+          for (const it of srcItems) insertItem(newId, it.name, it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++, it.tax_free);
           db.prepare('INSERT INTO quotation_sources (order_id,source_quotation_id,source_item_ids) VALUES (?,?,?)').run(newId, src.quotation_id, JSON.stringify(src.selected_item_ids));
         }
       })();
     }
     if (body.additional_items?.length) {
       db.transaction(() => {
-        for (const it of body.additional_items) insertItem.run(newId, it.name||'', it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++);
+        for (const it of body.additional_items) insertItem(newId, it.name||'', it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++, it.tax_free);
       })();
     }
-    const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM order_items WHERE order_id=?').get(newId).s;
-    db.prepare('UPDATE quotations SET total=? WHERE id=?').run(total, newId);
+    recalcTotal(LINE_ITEM.sales, newId);   // 공급가액·부가세까지 한 곳에서 계산한다
     return json(res, 200, { ok:true, id: newId, no });
   }
 
