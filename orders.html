@@ -308,10 +308,6 @@ function filtered() {
 
 function applyFilters() { shownCount = PAGE_SIZE; renderList(); }
 function showMore()     { shownCount += PAGE_SIZE; renderList(); }
-function clearFilters() {
-  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
-  applyFilters();
-}
 function exportOrders() {
   exportCsv('quotations', { q: val('search'), from: val('from'), to: val('to'),
                             status: curFilter === 'all' ? '' : curFilter });

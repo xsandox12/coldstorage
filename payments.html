@@ -192,10 +192,6 @@ const val = id => document.getElementById(id)?.value.trim() || '';
 let shownCount = PAGE_SIZE;
 function applyFilters() { shownCount = PAGE_SIZE; renderTab(curTab || 'unpaid'); }
 function showMore()     { shownCount += PAGE_SIZE; renderTab(curTab || 'unpaid'); }
-function clearFilters() {
-  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
-  applyFilters();
-}
 function exportCurrent() {
   const p = { q: val('search'), from: val('from'), to: val('to') };
   if (curTab === 'history') exportCsv('payments', p);

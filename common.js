@@ -161,3 +161,10 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   ok.click();
 });
+
+/* 검색·기간 초기화 — 판매·구매·입금·A/S 네 화면이 같은 id(search/from/to)를
+ * 쓰고 각자 applyFilters() 를 갖고 있어, 네 곳에 글자 하나까지 같은 사본이 있었다. */
+function clearFilters() {
+  for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
+  applyFilters();
+}
