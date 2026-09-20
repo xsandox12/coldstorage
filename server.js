@@ -776,6 +776,19 @@ function recordStatusChange(orderId, fromStatus, toStatus, reason, user) {
     .run(orderId, fromStatus||'', toStatus||'', reason||'', user?.id ?? null, user ? (user.name || user.username) : '');
 }
 
+/** 완료(done)를 풀고 출고 원장에서 상태를 다시 계산한다.
+ *  고정값으로 되돌리면 출고가 덜 된 채 완료됐던 주문이 잘못된 상태로 남는다. */
+function uncompleteOrder(order, reason, user) {
+  const items = db.prepare('SELECT qty,shipped_qty FROM order_items WHERE order_id=?').all(order.id);
+  const restored = !items.length                              ? 'draft'
+                 : items.every(i => i.shipped_qty >= i.qty)   ? 'shipped'
+                 : items.some(i => i.shipped_qty > 0)         ? 'partial'
+                 :                                              'ordered';
+  db.prepare('UPDATE quotations SET order_status=?,completion_batch_id=NULL WHERE id=?').run(restored, order.id);
+  recordStatusChange(order.id, order.order_status, restored, reason, user);
+  return restored;
+}
+
 function autoStatus(orderId) {
   const order = db.prepare('SELECT * FROM quotations WHERE id=?').get(orderId);
   if (!order || ['done','cancelled'].includes(order.order_status)) return;
@@ -1547,6 +1560,39 @@ async function handle(req, res) {
       })();
       return json(res, 200, { ok:true, batch_id: batchId, batch_no });
     }
+  }
+
+  // ── DELETE /api/completion-batches/:id — 완료 묶음 취소 ──────
+  const mCBId = pathname.match(/^\/api\/completion-batches\/(\d+)$/);
+  if (mCBId && method === 'DELETE') {
+    const id = parseInt(mCBId[1]);
+    const batch = db.prepare('SELECT * FROM completion_batches WHERE id=?').get(id);
+    if (!batch) return json(res, 404, { ok:false, error:'완료 묶음을 찾을 수 없습니다.' });
+    const rows = db.prepare('SELECT id,order_status FROM quotations WHERE completion_batch_id=?').all(id);
+    db.transaction(() => {
+      for (const o of rows) uncompleteOrder(o, `완료묶음 ${batch.batch_no} 취소`, req.user);
+      db.prepare('DELETE FROM completion_batches WHERE id=?').run(id);
+    })();
+    return json(res, 200, { ok:true, restored: rows.length });
+  }
+
+  // ── PATCH /api/quotations/:id/uncomplete — 완료 해제 ─────────
+  const mQUncomp = pathname.match(/^\/api\/quotations\/(\d+)\/uncomplete$/);
+  if (mQUncomp && method === 'PATCH') {
+    const id  = parseInt(mQUncomp[1]);
+    const cur = db.prepare('SELECT id,order_status,completion_batch_id FROM quotations WHERE id=?').get(id);
+    if (!cur) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
+    if (cur.order_status !== 'done') return json(res, 400, { ok:false, error:'완료 상태가 아닙니다.' });
+    let restored;
+    db.transaction(() => {
+      restored = uncompleteOrder(cur, '완료 해제', req.user);
+      // 묶음이 비면 남겨 둘 이유가 없다 — 빈 묶음이 목록에 쌓인다
+      if (cur.completion_batch_id != null) {
+        const left = db.prepare('SELECT COUNT(*) as n FROM quotations WHERE completion_batch_id=?').get(cur.completion_batch_id).n;
+        if (left === 0) db.prepare('DELETE FROM completion_batches WHERE id=?').run(cur.completion_batch_id);
+      }
+    })();
+    return json(res, 200, { ok:true, order_status: restored });
   }
 
   // ── /api/quotations/:id/items (편의 조회) ────────────────────

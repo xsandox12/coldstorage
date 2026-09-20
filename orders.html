@@ -390,6 +390,10 @@ async function selectOrder(id) {
           ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${esc(order.cancelled_reason)}</div>` : ''}
         </div>
         <div class="flex gap-2 flex-wrap justify-end">
+          ${order.order_status === 'done' ? `
+            <button onclick="guard(this, () => uncompleteOrder(${order.id}))" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200"
+                    title="완료 처리를 되돌립니다 (출고 기록에 맞는 상태로 돌아갑니다)">완료 해제</button>
+          ` : ''}
           ${!isCancelled ? `
             <select onchange="changeStatus(${order.id},this.value);this.value=''" class="text-xs px-2 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg cursor-pointer focus:outline-none focus:border-blue-400">
               <option value="">상태변경</option>
@@ -533,6 +537,15 @@ async function changeStatus(id, newStatus) {
 async function uncancelOrder(id) {
   if (!confirm('취소를 해제할까요?')) return;
   if (!await tryApi(() => api.patch(`/api/quotations/${id}/uncancel`), '취소가 해제됐습니다.')) return;
+  orders = await api.get('/api/quotations');
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(id);
+}
+
+async function uncompleteOrder(id) {
+  if (!confirm('완료 처리를 되돌릴까요?\n출고 기록에 맞는 상태로 돌아갑니다.')) return;
+  if (!await tryApi(() => api.patch(`/api/quotations/${id}/uncomplete`), '완료가 해제됐습니다.')) return;
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();

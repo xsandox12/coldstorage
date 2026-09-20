@@ -432,6 +432,33 @@ check "  자사 상호는 설정에서"    "true" \
 code -X DELETE "$BASE/api/quotations/$S2" >/dev/null
 code -X DELETE "$BASE/api/quotations/$S3" >/dev/null
 
+# ── Phase 5: 완료 해제 ──────────────────────────────────────
+echo
+echo "[Phase 5 완료 해제]"
+CID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+           -d '{"customer":"__comp__"}' | jsonq 'JSON.parse(s).id')
+body -X PUT "$BASE/api/order_items/order/$CID" -H 'Content-Type: application/json' \
+     -d '[{"name":"comp","qty":2,"unit_price":1000}]' >/dev/null
+CITEM=$(body "$BASE/api/order_items/order/$CID" | jsonq 'JSON.parse(s)[0].id')
+code -X PATCH "$BASE/api/quotations/$CID/status" -H 'Content-Type: application/json' -d '{"status":"ordered"}' >/dev/null
+code -X POST "$BASE/api/shipments" -H 'Content-Type: application/json' \
+     -d "{\"order_id\":$CID,\"item_id\":$CITEM,\"qty\":2}" >/dev/null
+CB=$(body -X POST "$BASE/api/completion-batches" -H 'Content-Type: application/json' \
+          -d "{\"order_ids\":[$CID]}" | jsonq 'JSON.parse(s).batch_id')
+check "완료묶음 생성 후 done"     "done" "$(body "$BASE/api/quotations/$CID" | jsonq 'JSON.parse(s).order_status')"
+code -X PATCH "$BASE/api/quotations/$CID/uncomplete" >/dev/null
+check "★ 완료 해제 -> 출고 기록대로 shipped" "shipped" \
+      "$(body "$BASE/api/quotations/$CID" | jsonq 'JSON.parse(s).order_status')"
+check "  빈 완료묶음은 함께 삭제"  0 \
+      "$(body "$BASE/api/completion-batches" | jsonq "JSON.parse(s).filter(b=>b.id===$CB).length")"
+check "  완료 아닌 건 해제 -> 400" 400 "$(code -X PATCH "$BASE/api/quotations/$CID/uncomplete")"
+# 묶음 단위 취소
+CB2=$(body -X POST "$BASE/api/completion-batches" -H 'Content-Type: application/json' \
+           -d "{\"order_ids\":[$CID]}" | jsonq 'JSON.parse(s).batch_id')
+check "묶음 통째 취소 -> 200"     200 "$(code -X DELETE "$BASE/api/completion-batches/$CB2")"
+check "  주문이 shipped 로 복귀"  "shipped" "$(body "$BASE/api/quotations/$CID" | jsonq 'JSON.parse(s).order_status')"
+code -X DELETE "$BASE/api/quotations/$CID" >/dev/null
+
 # ── Phase 5: 구매 취소·삭제 (판매와 대칭) ───────────────────
 echo
 echo "[Phase 5 구매 취소]"
