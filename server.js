@@ -289,15 +289,38 @@ function getOne(cfg, id) {
   return rowOut(cfg.table, db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(id));
 }
 function upsert(cfg, item) {
-  const row  = rowIn(cfg.table, item);
+  const row  = pickColumns(cfg.table, rowIn(cfg.table, item));
   const keys = Object.keys(row);
+  if (!keys.length) return;
   const vals = keys.map(k => row[k] ?? null);
   const ph   = keys.map(() => '?').join(', ');
   const upd  = keys.filter(k => k !== 'id').map(k => `${k} = excluded.${k}`).join(', ');
   db.prepare(`INSERT INTO ${cfg.table} (${keys.join(', ')}) VALUES (${ph}) ON CONFLICT(id) DO UPDATE SET ${upd}`).run(...vals);
 }
+/* 클라이언트가 보낸 키가 그대로 컬럼명에 문자열 보간되고 있었다.
+ * 모르는 키는 SQL 오류(= 500)를 내고, 따옴표가 섞이면 컬럼명 인젝션이 된다.
+ * 실제 스키마에서 컬럼을 읽어 거른다 — 손으로 적은 목록은 스키마와 어긋난다. */
+const columnCache = new Map();
+function columnsOf(table) {
+  if (!columnCache.has(table)) {
+    columnCache.set(table, new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name)));
+  }
+  return columnCache.get(table);
+}
+/** 스키마에 있는 컬럼만, 그리고 바인딩 가능한 값만 남긴다 */
+function pickColumns(table, row) {
+  const cols = columnsOf(table);
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (!cols.has(k)) continue;
+    if (v !== null && typeof v === 'object') continue;   // 배열·객체는 바인딩 불가
+    out[k] = v;
+  }
+  return out;
+}
+
 function updateOne(cfg, id, patch) {
-  const row  = rowIn(cfg.table, { id, ...patch });
+  const row  = pickColumns(cfg.table, rowIn(cfg.table, { id, ...patch }));
   const keys = Object.keys(row).filter(k => k !== 'id');
   if (!keys.length) return false;
   const vals = keys.map(k => row[k] ?? null);
@@ -782,11 +805,18 @@ async function handle(req, res) {
     const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
     if (!current) return json(res, 404, { ok:false, error:'주문을 찾을 수 없습니다.' });
     if (current.order_status !== 'cancelled') return json(res, 400, { ok:false, error:'취소 상태가 아닙니다.' });
+    // 무조건 draft 로 되돌리면 안 된다. tracksUnpaid 가 draft 를 미수금에서 제외하므로
+    // 계약금만 받고 출고 전인 ordered 주문을 잘못 취소했다 해제하면 미수금이 증발한다.
+    // autoStatus 는 출고 이력이 없으면 그냥 반환하므로 그것만으로는 복구되지 않는다.
+    const prev = db.prepare(`SELECT from_status FROM status_changes
+                             WHERE order_id=? AND to_status='cancelled' ORDER BY id DESC LIMIT 1`).get(id);
+    const restored = ORDER_STATUSES.includes(prev?.from_status) && prev.from_status !== 'cancelled'
+      ? prev.from_status : 'draft';
     db.transaction(() => {
       db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?')
-        .run('draft', '', '', id);
-      recordStatusChange(id, 'cancelled', 'draft', '취소 해제');
-      autoStatus(id);   // 출고 이력이 있으면 실제 상태로 되돌린다
+        .run(restored, '', '', id);
+      recordStatusChange(id, 'cancelled', restored, '취소 해제');
+      autoStatus(id);   // 출고 이력이 있으면 원장 기준 실제 상태가 이긴다
     })();
     return json(res, 200, { ok:true });
   }
@@ -1079,8 +1109,14 @@ async function handle(req, res) {
       const body = await parseBody(req) || {};
       const item = getOne(cfg, id);
       if (!item) return json(res, 404, { ok:false });
-      const patch = Object.keys(body).length === 0 ? { starred: !item.starred } : body;
-      updateOne(cfg, id, patch);
+      // 빈 본문 = 즐겨찾기 토글. 도면에만 있는 동작인데 모든 테이블에 적용돼
+      // starred 컬럼이 없는 곳에서는 SQL 오류가 났다.
+      if (Object.keys(body).length === 0) {
+        if (cfg.table !== 'drawings') return json(res, 400, { ok:false, error:'변경할 내용이 없습니다.' });
+        updateOne(cfg, id, { starred: !item.starred });
+        return json(res, 200, { ok:true, ...getOne(cfg, id) });
+      }
+      updateOne(cfg, id, body);
       return json(res, 200, { ok:true, ...getOne(cfg, id) });
     }
     if (method === 'DELETE') { deleteOne(cfg, id); return json(res, 200, { ok:true }); }

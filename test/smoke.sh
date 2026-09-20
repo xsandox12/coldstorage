@@ -143,6 +143,15 @@ check "PUT /api/quotations 차단"  "true" "$([ "$GEN" = "404" ] || [ "$GEN" = "
 check "  quotations 테이블 생존"  "true" "$(body "$BASE/api/quotations" | jsonq 'JSON.parse(s).length>0')"
 check "제네릭 PATCH 로 total 변조 차단" 405 \
       "$(code -X PATCH "$BASE/api/quotations/$OID" -H 'Content-Type: application/json' -d '{"total":999999999}')"
+# 클라이언트 키가 컬럼명에 그대로 보간돼 모르는 키는 SQL 오류(500)를 냈다
+CUSTID=$(body "$BASE/api/customers" | jsonq 'JSON.parse(s)[0].id')
+check "모르는 컬럼 무시 (500 아님)" 200 \
+      "$(code -X PATCH "$BASE/api/customers/$CUSTID" -H 'Content-Type: application/json' \
+         -d '{"__nope__":1,"nested":{"a":1}}')"
+check "  프로세스 생존"           200 "$(alive)"
+check "빈 PATCH -> 400 (starred 주입 안 함)" 400 \
+      "$(code -X PATCH "$BASE/api/customers/$CUSTID" -H 'Content-Type: application/json' -d '{}')"
+check "users 는 제네릭 라우트에 없음" 404 "$(code "$BASE/api/users")"
 
 # ── P0-9: 회계·대시보드 정합성 ──────────────────────────────
 echo
@@ -163,8 +172,27 @@ check "취소건은 미수금에서 제외" "true" \
 check "취소된 주문 입금 -> 400"   400 "$(code -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \
                                         -d "{\"order_id\":$OID,\"amount\":1000}")"
 check "취소 해제 -> 200"          200 "$(code -X PATCH "$BASE/api/quotations/$OID/uncancel")"
+check "  해제 후 원장 기준 partial" "partial" \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID).order_status")"
 check "이력 조회에 취소 기록"     "true" \
       "$(body "$BASE/api/quotations/$OID/history" | jsonq "JSON.parse(s).changes.some(c=>c.to_status==='cancelled')")"
+# 출고 이력이 없으면 autoStatus 가 복구해주지 않는다. 그래서 해제를 무조건 draft 로 하면
+# tracksUnpaid 가 draft 를 제외하므로 계약금만 받은 주문의 미수금이 증발한다.
+STAMP2="ZZSMOKE2-$$"
+body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+     -d "{\"no\":\"$STAMP2\",\"date\":\"2026-01-01\",\"customer\":\"__smoke__\",\"order_status\":\"ordered\",\"total\":0,\"total_paid\":0}" >/dev/null
+OID2=$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP2').pop().id")
+body -X PUT "$BASE/api/order_items/order/$OID2" -H 'Content-Type: application/json' \
+     -d '[{"name":"미출고품목","qty":5,"unit_price":10000}]' >/dev/null
+code -X PATCH "$BASE/api/quotations/$OID2/cancel" -H 'Content-Type: application/json' \
+     -d '{"reason":"출고전 취소"}' >/dev/null
+code -X PATCH "$BASE/api/quotations/$OID2/uncancel" >/dev/null
+check "★ 출고 없는 주문 해제 -> ordered 복원" "ordered" \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).find(q=>q.id===$OID2).order_status")"
+check "  해제 후 미수금에 다시 잡힘" "true" \
+      "$(body "$BASE/api/dashboard" | jsonq 'JSON.parse(s).kpi.totalUnpaid >= 50000')"
+code -X DELETE "$BASE/api/quotations/$OID2" >/dev/null
+
 check "대시보드 내부메모 미노출"  "true" \
       "$(body "$BASE/api/dashboard" | jsonq "JSON.parse(s).recent.every(r=>!('memo_internal' in r))")"
 
