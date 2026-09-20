@@ -5,6 +5,7 @@ const http     = require('http');
 const fs       = require('fs');
 const path     = require('path');
 const url      = require('url');
+const crypto   = require('crypto');
 const Database = require('better-sqlite3');
 
 const PORT     = 9000;
@@ -137,6 +138,38 @@ db.exec(`
   );
 `);
 
+// ─── 신규 테이블 ────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shipment_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_no TEXT UNIQUE NOT NULL,
+    shipped_at TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS completion_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_no TEXT UNIQUE NOT NULL,
+    completed_at TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS status_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    from_status TEXT DEFAULT '',
+    to_status TEXT DEFAULT '',
+    changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT DEFAULT ''
+  );
+  CREATE TABLE IF NOT EXISTS quotation_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    source_quotation_id INTEGER,
+    source_item_ids TEXT DEFAULT '[]'
+  );
+`);
+
 // ─── 마이그레이션 ────────────────────────────────────────────
 // 기존 테이블 컬럼 추가 (없을 때만)
 for (const sql of [
@@ -145,6 +178,12 @@ for (const sql of [
   `ALTER TABLE quotations ADD COLUMN order_status TEXT DEFAULT 'draft'`,
   `ALTER TABLE quotations ADD COLUMN total_paid INTEGER DEFAULT 0`,
   `ALTER TABLE quotations ADD COLUMN items_json TEXT DEFAULT '[]'`,
+  `ALTER TABLE quotations ADD COLUMN memo_customer TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN memo_internal TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN cancelled_at TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN cancelled_reason TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN completion_batch_id INTEGER`,
+  `ALTER TABLE shipments ADD COLUMN batch_id INTEGER`,
   `ALTER TABLE as_records ADD COLUMN urgency TEXT DEFAULT 'NORMAL'`,
   `ALTER TABLE as_records ADD COLUMN assignee TEXT DEFAULT ''`,
 ]) { try { db.exec(sql) } catch {} }
@@ -157,7 +196,7 @@ for (const sql of [
   const empty = tbl => db.prepare(`SELECT COUNT(*) as n FROM ${tbl}`).get().n === 0;
 
   if (empty('customers')) {
-    const ins = db.prepare('INSERT OR IGNORE INTO customers VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR IGNORE INTO customers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
     db.transaction(() => (load('customers.json') || []).forEach(c =>
       ins.run(c.id, c.name||'', c.rep||'', c.business_no||'', c.phone||'', c.email||'',
         c.address_post||'', c.address_base||'', c.address_detail||'',
@@ -251,9 +290,13 @@ function recalcPaid(orderId) {
   db.prepare('UPDATE quotations SET total_paid=? WHERE id=?').run(row.s, orderId);
 }
 
+function recordStatusChange(orderId, fromStatus, toStatus, reason) {
+  db.prepare('INSERT INTO status_changes (order_id,from_status,to_status,reason) VALUES (?,?,?,?)').run(orderId, fromStatus||'', toStatus||'', reason||'');
+}
+
 function autoStatus(orderId) {
   const order = db.prepare('SELECT * FROM quotations WHERE id=?').get(orderId);
-  if (!order || order.order_status === 'done') return;
+  if (!order || ['done','cancelled'].includes(order.order_status)) return;
   const items = db.prepare('SELECT * FROM order_items WHERE order_id=?').all(orderId);
   if (!items.length) return;
   const allShipped = items.every(i => i.shipped_qty >= i.qty);
@@ -313,6 +356,46 @@ const serveStatic = (req, res, pathname) => {
   });
 };
 
+// ─── 인증 (단일 공용 비밀번호) ────────────────────────────────
+const PASSWORD    = process.env.APP_PASSWORD || '0000';
+const SESSION_MAX = 7 * 24 * 60 * 60 * 1000;   // 7일
+const COOKIE_NAME = 'cs_session';
+
+// 세션 서명키 — data/ 에 보관해 재시작해도 로그인이 유지된다
+const SECRET = (() => {
+  const fp = path.join(DATA_DIR, '.session-secret');
+  try { return fs.readFileSync(fp, 'utf8').trim(); } catch {}
+  const s = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(fp, s, { mode: 0o600 }); } catch {}
+  return s;
+})();
+
+const sign = v => crypto.createHmac('sha256', SECRET).update(String(v)).digest('hex');
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
+const makeToken = () => { const exp = Date.now() + SESSION_MAX; return `${exp}.${sign(exp)}`; };
+const validToken = token => {
+  if (!token) return false;
+  const [exp, mac] = String(token).split('.');
+  if (!exp || !mac || !safeEq(mac, sign(exp))) return false;
+  return Number(exp) > Date.now();
+};
+const readCookie = (req, name) => {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return null;
+};
+
+// 로그인 없이 접근 가능한 경로
+const PUBLIC_PATHS = new Set(['/login.html', '/api/login', '/logout']);
+
 // ─── HTTP 서버 ──────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   const { pathname: rawPath } = url.parse(req.url);
@@ -320,6 +403,33 @@ const server = http.createServer(async (req, res) => {
   const method   = req.method.toUpperCase();
 
   if (method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
+
+  // ── 로그인 / 로그아웃 ────────────────────────────────────────
+  if (pathname === '/api/login' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!body || !safeEq(sign(body.password ?? ''), sign(PASSWORD))) {
+      return json(res, 401, { error: '비밀번호가 올바르지 않습니다.' });
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Set-Cookie': `${COOKIE_NAME}=${makeToken()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX / 1000}`,
+    });
+    return res.end(JSON.stringify({ ok: true }));
+  }
+  if (pathname === '/logout') {
+    res.writeHead(302, {
+      'Location': '/login.html',
+      'Set-Cookie': `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`,
+    });
+    return res.end();
+  }
+
+  // ── 인증 게이트 ─────────────────────────────────────────────
+  if (!PUBLIC_PATHS.has(pathname) && !validToken(readCookie(req, COOKIE_NAME))) {
+    if (pathname.startsWith('/api/')) return json(res, 401, { error: '로그인이 필요합니다.' });
+    res.writeHead(302, { 'Location': '/login.html' });
+    return res.end();
+  }
 
   // ── /api/dashboard ──────────────────────────────────────────
   if (pathname === '/api/dashboard' && method === 'GET') {
@@ -419,10 +529,137 @@ const server = http.createServer(async (req, res) => {
   if (mQStatus && method === 'PATCH') {
     const id   = parseInt(mQStatus[1]);
     const body = await parseBody(req);
-    const valid = ['draft','ordered','partial','shipped','done'];
-    if (!body || !valid.includes(body.status)) return json(res, 400, { ok:false, error:'유효하지 않은 상태' });
+    if (!body || !body.status) return json(res, 400, { ok:false, error:'status 필수' });
+    const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
     db.prepare('UPDATE quotations SET order_status=? WHERE id=?').run(body.status, id);
+    if (current) recordStatusChange(id, current.order_status, body.status, body.reason||'');
     return json(res, 200, { ok:true });
+  }
+
+  // ── PATCH /api/quotations/:id/cancel ─────────────────────────
+  const mQCancel = pathname.match(/^\/api\/quotations\/(\d+)\/cancel$/);
+  if (mQCancel && method === 'PATCH') {
+    const id   = parseInt(mQCancel[1]);
+    const body = await parseBody(req);
+    const current = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(id);
+    const now = new Date().toISOString().slice(0,10);
+    db.prepare('UPDATE quotations SET order_status=?,cancelled_at=?,cancelled_reason=? WHERE id=?').run('cancelled', now, body?.reason||'', id);
+    if (current) recordStatusChange(id, current.order_status, 'cancelled', body?.reason||'');
+    return json(res, 200, { ok:true });
+  }
+
+  // ── PATCH /api/quotations/:id/memo ───────────────────────────
+  const mQMemo = pathname.match(/^\/api\/quotations\/(\d+)\/memo$/);
+  if (mQMemo && method === 'PATCH') {
+    const id   = parseInt(mQMemo[1]);
+    const body = await parseBody(req);
+    if (!body) return json(res, 400, { ok:false });
+    const sets = [], vals = [];
+    if (body.memo_customer !== undefined) { sets.push('memo_customer=?'); vals.push(body.memo_customer); }
+    if (body.memo_internal !== undefined) { sets.push('memo_internal=?'); vals.push(body.memo_internal); }
+    if (!sets.length) return json(res, 400, { ok:false, error:'변경할 필드 없음' });
+    db.prepare(`UPDATE quotations SET ${sets.join(',')} WHERE id=?`).run(...vals, id);
+    return json(res, 200, { ok:true });
+  }
+
+  // ── POST /api/quotations/from-quotations ─────────────────────
+  if (pathname === '/api/quotations/from-quotations' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!body) return json(res, 400, { ok:false });
+    const now = new Date();
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const dd = String(now.getDate()).padStart(2,'0');
+    const today = `${now.getFullYear()}-${mm}-${dd}`;
+    const cnt = db.prepare('SELECT COUNT(*) as n FROM quotations WHERE date=?').get(today).n + 1;
+    const no = body.no || `${String(now.getFullYear()).slice(2)}/${mm}/${dd}-${cnt}`;
+    const cust = db.prepare('SELECT * FROM customers WHERE id=?').get(body.customer_id||'');
+    const r = db.prepare('INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
+      no, body.date||today, body.customer_id||'', cust?.name||body.customer||'', 'draft', 0, 0, body.memo||'', '한남냉동테크(주)', '진행중'
+    );
+    const newId = r.lastInsertRowid;
+    let sortOrder = 0;
+    const insertItem = db.prepare('INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order) VALUES (?,?,?,?,?,?,?,?,?)');
+    if (body.items_from?.length) {
+      db.transaction(() => {
+        for (const src of body.items_from) {
+          if (!src.selected_item_ids?.length) continue;
+          const ph = src.selected_item_ids.map(()=>'?').join(',');
+          const srcItems = db.prepare(`SELECT * FROM order_items WHERE order_id=? AND id IN (${ph}) ORDER BY sort_order`).all(src.quotation_id, ...src.selected_item_ids);
+          for (const it of srcItems) insertItem.run(newId, it.name, it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++);
+          db.prepare('INSERT INTO quotation_sources (order_id,source_quotation_id,source_item_ids) VALUES (?,?,?)').run(newId, src.quotation_id, JSON.stringify(src.selected_item_ids));
+        }
+      })();
+    }
+    if (body.additional_items?.length) {
+      db.transaction(() => {
+        for (const it of body.additional_items) insertItem.run(newId, it.name||'', it.spec||'', it.unit||'EA', it.qty||0, it.unit_price||0, 0, it.note||'', sortOrder++);
+      })();
+    }
+    const total = db.prepare('SELECT COALESCE(SUM(qty*unit_price),0) as s FROM order_items WHERE order_id=?').get(newId).s;
+    db.prepare('UPDATE quotations SET total=? WHERE id=?').run(total, newId);
+    return json(res, 200, { ok:true, id: newId, no });
+  }
+
+  // ── /api/shipment-batches ────────────────────────────────────
+  if (pathname === '/api/shipment-batches') {
+    if (method === 'GET') {
+      const rows = db.prepare('SELECT sb.*,COUNT(s.id) as items_count FROM shipment_batches sb LEFT JOIN shipments s ON s.batch_id=sb.id GROUP BY sb.id ORDER BY sb.created_at DESC').all();
+      return json(res, 200, rows);
+    }
+    if (method === 'POST') {
+      const body = await parseBody(req);
+      if (!body || !body.items?.length) return json(res, 400, { ok:false, error:'items 필수' });
+      const now = new Date();
+      const ds = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+      const cnt = db.prepare('SELECT COUNT(*) as n FROM shipment_batches WHERE batch_no LIKE ?').get(`SB${ds}%`).n + 1;
+      const batch_no = `SB${ds}${String(cnt).padStart(3,'0')}`;
+      const br = db.prepare('INSERT INTO shipment_batches (batch_no,shipped_at,note) VALUES (?,?,?)').run(batch_no, body.shipped_at||'', body.note||'');
+      const batchId = br.lastInsertRowid;
+      db.transaction(() => {
+        for (const item of body.items) {
+          db.prepare('INSERT INTO shipments (order_id,item_id,qty,shipped_at,note,batch_id) VALUES (?,?,?,?,?,?)').run(item.order_id, item.item_id, item.qty, body.shipped_at||'', body.note||'', batchId);
+          db.prepare('UPDATE order_items SET shipped_qty = shipped_qty + ? WHERE id=?').run(item.qty, item.item_id);
+          autoStatus(item.order_id);
+        }
+      })();
+      return json(res, 200, { ok:true, batch_id: batchId, batch_no });
+    }
+  }
+
+  // ── /api/shipment-batches/:id ────────────────────────────────
+  const mSB = pathname.match(/^\/api\/shipment-batches\/(\d+)$/);
+  if (mSB && method === 'GET') {
+    const id = parseInt(mSB[1]);
+    const batch = db.prepare('SELECT * FROM shipment_batches WHERE id=?').get(id);
+    if (!batch) return json(res, 404, { ok:false });
+    const items = db.prepare('SELECT s.*,oi.name as item_name,q.no as order_no FROM shipments s LEFT JOIN order_items oi ON s.item_id=oi.id LEFT JOIN quotations q ON s.order_id=q.id WHERE s.batch_id=?').all(id);
+    return json(res, 200, { ...batch, items });
+  }
+
+  // ── /api/completion-batches ──────────────────────────────────
+  if (pathname === '/api/completion-batches') {
+    if (method === 'GET') {
+      const rows = db.prepare('SELECT cb.*,COUNT(q.id) as orders_count FROM completion_batches cb LEFT JOIN quotations q ON q.completion_batch_id=cb.id GROUP BY cb.id ORDER BY cb.created_at DESC').all();
+      return json(res, 200, rows);
+    }
+    if (method === 'POST') {
+      const body = await parseBody(req);
+      if (!body || !body.order_ids?.length) return json(res, 400, { ok:false, error:'order_ids 필수' });
+      const now = new Date();
+      const ds = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+      const cnt = db.prepare('SELECT COUNT(*) as n FROM completion_batches WHERE batch_no LIKE ?').get(`CB${ds}%`).n + 1;
+      const batch_no = `CB${ds}${String(cnt).padStart(3,'0')}`;
+      const br = db.prepare('INSERT INTO completion_batches (batch_no,completed_at,note) VALUES (?,?,?)').run(batch_no, body.completed_at||'', body.note||'');
+      const batchId = br.lastInsertRowid;
+      db.transaction(() => {
+        for (const orderId of body.order_ids) {
+          const cur = db.prepare('SELECT order_status FROM quotations WHERE id=?').get(orderId);
+          db.prepare('UPDATE quotations SET order_status=?,completion_batch_id=? WHERE id=?').run('done', batchId, orderId);
+          if (cur) recordStatusChange(orderId, cur.order_status, 'done', `완료묶음 ${batch_no}`);
+        }
+      })();
+      return json(res, 200, { ok:true, batch_id: batchId, batch_no });
+    }
   }
 
   // ── /api/quotations/:id/items (편의 조회) ────────────────────

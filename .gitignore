@@ -7,3 +7,12 @@ test_*.png
 # OS
 .DS_Store
 Thumbs.db
+
+# 의존성 (리눅스 컨테이너에서 새로 설치됨 — 윈도우 빌드 바이너리 커밋 금지)
+node_modules/
+
+# 런타임 SQLite DB (서버에서는 docker named volume 사용)
+data/
+
+# 세션 시크릿
+.session-secret

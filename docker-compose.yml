@@ -4,9 +4,20 @@ services:
     container_name: coldstorage
     ports:
       - "9000:9000"
+    environment:
+      # 공용 로그인 비밀번호 — 변경 시 이 값만 수정 후 up -d
+      APP_PASSWORD: "0000"
     volumes:
       - coldstorage-data:/app/data
+    networks:
+      - default
+      # cloudflared 가 http://coldstorage:9000 으로 도달하려면 필요
+      - main_default
     restart: unless-stopped
 
 volumes:
   coldstorage-data:
+
+networks:
+  main_default:
+    external: true

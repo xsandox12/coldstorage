@@ -12,12 +12,13 @@
   .nav-link:hover { background:#334155;color:#e2e8f0; }
   .nav-link.active { background:#1d4ed8;color:#fff; }
   .status-badge { display:inline-flex;align-items:center;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600; }
-  .s-draft    { background:#dbeafe;color:#1d4ed8; }
-  .s-ordered  { background:#ffedd5;color:#c2410c; }
-  .s-partial  { background:#fef9c3;color:#854d0e; }
-  .s-shipped  { background:#ede9fe;color:#6d28d9; }
-  .s-done     { background:#dcfce7;color:#15803d; }
-  .row-sel    { background:#eff6ff!important; }
+  .s-draft      { background:#dbeafe;color:#1d4ed8; }
+  .s-ordered    { background:#ffedd5;color:#c2410c; }
+  .s-partial    { background:#fef9c3;color:#854d0e; }
+  .s-shipped    { background:#ede9fe;color:#6d28d9; }
+  .s-done       { background:#dcfce7;color:#15803d; }
+  .s-cancelled  { background:#fee2e2;color:#dc2626; }
+  .row-sel      { background:#eff6ff!important; }
   ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
   .item-row input { border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;font-size:12px;width:100%; }
   .item-row input:focus { outline:none;border-color:#3b82f6; }
@@ -54,9 +55,14 @@
   <div class="w-[420px] shrink-0 flex flex-col border-r border-slate-200 bg-white">
     <!-- 헤더 -->
     <div class="p-4 border-b border-slate-100">
-      <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center justify-between mb-2">
         <h1 class="font-bold text-base">판매</h1>
         <button onclick="openNewModal()" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700">+ 새 판매</button>
+      </div>
+      <!-- 묶음 처리 버튼 -->
+      <div class="flex gap-2 mb-2">
+        <button onclick="openShipBatchModal()" class="flex-1 text-xs px-2 py-1.5 border border-purple-200 text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100">🚚 출고 묶음</button>
+        <button onclick="openCompletionBatchModal()" class="flex-1 text-xs px-2 py-1.5 border border-green-200 text-green-700 bg-green-50 rounded-lg hover:bg-green-100">✅ 완료 묶음</button>
       </div>
       <!-- 필터 탭 -->
       <div class="flex gap-1 flex-wrap" id="filter-tabs">
@@ -66,6 +72,7 @@
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="partial">부분출고</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="shipped">출고</button>
         <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="done">완료</button>
+        <button class="tab-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600" data-s="cancelled">취소</button>
       </div>
     </div>
     <!-- 목록 -->
@@ -87,48 +94,163 @@
   <button onclick="closeDrawing()" class="absolute top-6 right-8 text-white text-2xl font-bold hover:text-slate-200">✕</button>
 </div>
 
-<!-- ─── 새 견적 모달 ──────────────────────────────────────── -->
+<!-- ─── 새 판매 모달 (탭: 신규/견적조합) ──────────────────── -->
 <div id="new-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
-  <div class="bg-white rounded-2xl p-6 w-[480px] shadow-xl">
-    <div class="flex items-center justify-between mb-4">
+  <div class="bg-white rounded-2xl p-6 w-[580px] max-h-[85vh] overflow-y-auto shadow-xl">
+    <div class="flex items-center justify-between mb-3">
       <h2 class="font-bold text-base">새 판매 작성</h2>
       <button onclick="closeNewModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
     </div>
-    <div class="flex flex-col gap-3">
-      <div>
-        <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
-        <select id="new-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-          <option value="">-- 고객 선택 --</option>
-        </select>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
+    <!-- 탭 헤더 -->
+    <div class="flex gap-1 border-b border-slate-200 mb-4">
+      <button id="new-tab-plain" onclick="switchNewTab('plain')" class="px-4 py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600 -mb-px">신규 생성</button>
+      <button id="new-tab-compose" onclick="switchNewTab('compose')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 -mb-px">견적서 조합</button>
+    </div>
+    <!-- 신규 생성 탭 -->
+    <div id="new-panel-plain">
+      <div class="flex flex-col gap-3">
         <div>
-          <label class="text-xs font-medium text-slate-500 mb-1 block">판매 번호</label>
-          <input id="new-no" type="text" placeholder="자동 생성" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
+          <select id="new-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">-- 고객 선택 --</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 mb-1 block">판매 번호</label>
+            <input id="new-no" type="text" placeholder="자동 생성" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 mb-1 block">날짜</label>
+            <input id="new-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </div>
         </div>
         <div>
-          <label class="text-xs font-medium text-slate-500 mb-1 block">날짜</label>
-          <input id="new-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          <label class="text-xs font-medium text-slate-500 mb-1 block">메모 (선택)</label>
+          <input id="new-memo" type="text" placeholder="현장명, 품목 요약 등" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
         </div>
       </div>
-      <div>
-        <label class="text-xs font-medium text-slate-500 mb-1 block">메모 (선택)</label>
-        <input id="new-memo" type="text" placeholder="현장명, 품목 요약 등" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      <div class="flex justify-end gap-2 mt-5">
+        <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+        <button onclick="createOrder()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">생성</button>
       </div>
     </div>
+    <!-- 견적서 조합 탭 -->
+    <div id="new-panel-compose" class="hidden">
+      <div class="flex flex-col gap-3 mb-4">
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
+          <select id="compose-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">-- 고객 선택 --</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 mb-1 block">판매 번호</label>
+            <input id="compose-no" type="text" placeholder="자동 생성" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 mb-1 block">날짜</label>
+            <input id="compose-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </div>
+        </div>
+      </div>
+      <div class="text-xs font-semibold text-slate-600 mb-2">견적서에서 품목 가져오기</div>
+      <div id="compose-quotes-list" class="border border-slate-200 rounded-lg overflow-hidden mb-3 max-h-48 overflow-y-auto">
+        <div class="p-3 text-sm text-slate-400 text-center">로딩 중...</div>
+      </div>
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs font-semibold text-slate-600">추가 품목</div>
+        <button onclick="addComposeItem()" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50">+ 행 추가</button>
+      </div>
+      <div id="compose-extra-items" class="mb-3"></div>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+        <button onclick="createFromQuotations()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">주문서 생성</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 출고 묶음 모달 ─────────────────────────────────────── -->
+<div id="ship-batch-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[660px] max-h-[85vh] overflow-y-auto shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">출고 묶음 처리</h2>
+      <button onclick="closeShipBatchModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">주문서를 선택하고 각 품목의 이번 출고 수량을 입력하세요.</p>
+    <div id="ship-batch-content"></div>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">출고일</label>
+        <input id="sb-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모</label>
+        <input id="sb-note" type="text" placeholder="메모" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="closeShipBatchModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="submitShipBatch()" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">출고 처리</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 완료 묶음 모달 ─────────────────────────────────────── -->
+<div id="completion-batch-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[560px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">완료 묶음 처리</h2>
+      <button onclick="closeCompletionBatchModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">출고 완료된 주문서를 선택해 일괄 완료 처리합니다.</p>
+    <div id="completion-batch-content"></div>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">완료 처리일</label>
+        <input id="cb-date" type="date" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 mb-1 block">메모</label>
+        <input id="cb-note" type="text" placeholder="메모" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="closeCompletionBatchModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+      <button onclick="submitCompletionBatch()" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">완료 처리</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 거래 취소 모달 ─────────────────────────────────────── -->
+<div id="cancel-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[420px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base text-red-600">거래 취소</h2>
+      <button onclick="closeCancelModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <p class="text-sm text-slate-600 mb-3">이 판매건을 취소 상태로 변경합니다.</p>
+    <div>
+      <label class="text-xs font-medium text-slate-500 mb-1 block">취소 사유 (선택)</label>
+      <input id="cancel-reason" type="text" placeholder="고객 요청, 계약 해지 등" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-400">
+    </div>
     <div class="flex justify-end gap-2 mt-5">
-      <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="createOrder()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">생성</button>
+      <button onclick="closeCancelModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">돌아가기</button>
+      <button onclick="submitCancel()" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">취소 처리</button>
     </div>
   </div>
 </div>
 
 <script>
 const API = '';
-const STATUS_LABEL = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료' };
-const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', shipped:'s-shipped', done:'s-done' };
-const STATUS_FLOW  = { draft:'ordered', ordered:'shipped', partial:'shipped', shipped:'done' };
-const STATUS_BTN   = { draft:'주문 확정', ordered:'출고 처리', partial:'출고 처리', shipped:'완료 처리' };
+const STATUS_LABEL = { draft:'견적', ordered:'주문', partial:'부분출고', shipped:'출고', done:'완료', cancelled:'취소' };
+const STATUS_CLS   = { draft:'s-draft', ordered:'s-ordered', partial:'s-partial', shipped:'s-shipped', done:'s-done', cancelled:'s-cancelled' };
+const ALL_STATUSES = [
+  {v:'draft',l:'견적'},{v:'ordered',l:'주문'},{v:'partial',l:'부분출고'},
+  {v:'shipped',l:'출고'},{v:'done',l:'완료'},{v:'cancelled',l:'취소'},
+];
 
 let orders = [], customers = [], curFilter = 'all', curId = null, curItems = [], curPayments = [];
 
@@ -138,14 +260,16 @@ async function init() {
     fetch('/api/quotations').then(r=>r.json()),
     fetch('/api/customers').then(r=>r.json()),
   ]);
-  // 최신순 정렬
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  // 새 견적 모달 고객 목록
-  const sel = document.getElementById('new-cust');
-  customers.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
-  // 오늘 날짜
-  document.getElementById('new-date').value = new Date().toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0,10);
+  // 고객 선택 옵션 공통 채우기
+  ['new-cust','compose-cust'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    customers.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  });
+  document.getElementById('new-date').value = today;
+  document.getElementById('compose-date').value = today;
 }
 
 function filtered() {
@@ -204,8 +328,8 @@ async function selectOrder(id) {
   const cust = customers.find(c=>c.id===order.customer_id);
   const custName = cust ? cust.name : (order.customer || '—');
   const unpaid = (order.total||0) - (order.total_paid||0);
-  const nextStatus = STATUS_FLOW[order.order_status];
-  const canAdvance = !!nextStatus;
+  const isCancelled = order.order_status === 'cancelled';
+  const isDone = order.order_status === 'done';
 
   document.getElementById('empty-state').classList.add('hidden');
   const dc = document.getElementById('detail-content');
@@ -220,9 +344,16 @@ async function selectOrder(id) {
             <span class="status-badge ${STATUS_CLS[order.order_status]||'s-draft'}">${STATUS_LABEL[order.order_status]||order.order_status}</span>
           </div>
           <div class="text-xs text-slate-400">${order.no||'#'+order.id} · ${order.date||''} · ${order.ref||'한남냉동테크(주)'}</div>
+          ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${order.cancelled_reason}</div>` : ''}
         </div>
-        <div class="flex gap-2">
-          ${canAdvance ? `<button onclick="advanceStatus(${order.id},'${nextStatus}')" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">${STATUS_BTN[order.order_status]}</button>` : ''}
+        <div class="flex gap-2 flex-wrap justify-end">
+          ${!isCancelled ? `
+            <select onchange="changeStatus(${order.id},this.value);this.value=''" class="text-xs px-2 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg cursor-pointer focus:outline-none focus:border-blue-400">
+              <option value="">상태변경</option>
+              ${ALL_STATUSES.filter(s=>s.v!==order.order_status).map(s=>`<option value="${s.v}">${s.l}</option>`).join('')}
+            </select>
+            <button onclick="openCancelModal(${order.id})" class="text-xs px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100">거래 취소</button>
+          ` : ''}
           <button onclick="openDrawingModal(${order.id})" class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">✏️ 도면 연동</button>
         </div>
       </div>
@@ -252,6 +383,7 @@ async function selectOrder(id) {
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600" data-tab="items">품목</button>
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="payments">입금</button>
       <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="shipments">출고</button>
+      <button class="detail-tab py-2 text-sm font-medium border-b-2 border-transparent text-slate-500" data-tab="memo">메모</button>
     </div>
 
     <!-- 탭 콘텐츠 -->
@@ -261,7 +393,6 @@ async function selectOrder(id) {
 
   renderTab('items');
 
-  // 탭 전환
   document.getElementById('detail-tabs').addEventListener('click', e => {
     const btn = e.target.closest('.detail-tab');
     if (!btn) return;
@@ -277,12 +408,39 @@ function renderTab(tab) {
   if (tab === 'items') renderItemsTab(tc);
   else if (tab === 'payments') renderPaymentsTab(tc);
   else if (tab === 'shipments') renderShipmentsTab(tc);
+  else if (tab === 'memo') renderMemoTab(tc);
+}
+
+// ─── 상태 변경 ───────────────────────────────────────────────
+async function changeStatus(id, newStatus) {
+  if (!newStatus) return;
+  await fetch(`/api/quotations/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:newStatus }) });
+  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(id);
+}
+
+// ─── 거래 취소 ───────────────────────────────────────────────
+let cancelTargetId = null;
+function openCancelModal(id) { cancelTargetId = id; document.getElementById('cancel-reason').value = ''; document.getElementById('cancel-modal').classList.remove('hidden'); }
+function closeCancelModal() { document.getElementById('cancel-modal').classList.add('hidden'); cancelTargetId = null; }
+
+async function submitCancel() {
+  if (!cancelTargetId) return;
+  const reason = document.getElementById('cancel-reason').value;
+  await fetch(`/api/quotations/${cancelTargetId}/cancel`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ reason }) });
+  closeCancelModal();
+  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(cancelTargetId);
 }
 
 // ─── 품목 탭 ─────────────────────────────────────────────────
 function renderItemsTab(tc) {
   const order = orders.find(o => o.id === curId);
-  const isDone = order?.order_status === 'done';
+  const isDone = order?.order_status === 'done' || order?.order_status === 'cancelled';
   tc.innerHTML = `
     <div class="flex items-center justify-between mb-3">
       <span class="text-sm font-semibold">품목 목록</span>
@@ -310,9 +468,8 @@ function renderItemsTab(tc) {
         </tbody>
         <tfoot class="border-t border-slate-100">
           <tr>
-            <td colspan="${isDone?6:6}" class="p-2 text-right font-semibold text-slate-600">합계</td>
+            <td colspan="6" class="p-2 text-right font-semibold text-slate-600">합계</td>
             <td class="p-2 text-right font-bold">${curItems.reduce((s,it)=>s+(it.qty*it.unit_price),0).toLocaleString()}원</td>
-            <td></td>
             ${!isDone ? '<td></td>' : ''}
           </tr>
         </tfoot>
@@ -354,14 +511,10 @@ function addItemRow() {
   renderTab('items');
 }
 
-function removeItem(i) {
-  curItems.splice(i, 1);
-  renderTab('items');
-}
+function removeItem(i) { curItems.splice(i, 1); renderTab('items'); }
 
 async function saveItems() {
   await fetch(`/api/order_items/order/${curId}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(curItems) });
-  // 목록 새로고침
   orders = await fetch('/api/quotations').then(r=>r.json());
   orders.sort((a,b) => b.id - a.id);
   renderList();
@@ -377,18 +530,9 @@ function renderPaymentsTab(tc) {
     </div>
     <div id="pay-form" class="hidden bg-white rounded-xl border border-slate-200 p-4 mb-3">
       <div class="grid grid-cols-3 gap-2 mb-2">
-        <div>
-          <label class="text-xs text-slate-500">금액</label>
-          <input id="pf-amount" type="number" placeholder="0" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
-        </div>
-        <div>
-          <label class="text-xs text-slate-500">입금일</label>
-          <input id="pf-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
-        </div>
-        <div>
-          <label class="text-xs text-slate-500">메모</label>
-          <input id="pf-note" type="text" placeholder="계약금, 잔금..." class="w-full border border-slate-200 rounded px-2 py-1 text-sm">
-        </div>
+        <div><label class="text-xs text-slate-500">금액</label><input id="pf-amount" type="number" placeholder="0" class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
+        <div><label class="text-xs text-slate-500">입금일</label><input id="pf-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
+        <div><label class="text-xs text-slate-500">메모</label><input id="pf-note" type="text" placeholder="계약금, 잔금..." class="w-full border border-slate-200 rounded px-2 py-1 text-sm"></div>
       </div>
       <div class="flex justify-end gap-2">
         <button onclick="document.getElementById('pay-form').classList.add('hidden')" class="text-xs px-3 py-1 border border-slate-200 rounded hover:bg-slate-50">취소</button>
@@ -397,22 +541,18 @@ function renderPaymentsTab(tc) {
     </div>
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
       ${curPayments.length === 0 ? '<div class="p-4 text-center text-slate-400 text-sm">입금 내역 없음</div>' :
-        `<table class="w-full text-xs">
-          <thead class="bg-slate-50"><tr>
-            <th class="p-2 text-left font-medium text-slate-500">입금일</th>
-            <th class="p-2 text-right font-medium text-slate-500">금액</th>
-            <th class="p-2 text-left font-medium text-slate-500">메모</th>
-            <th class="p-2 w-8"></th>
-          </tr></thead>
-          <tbody>${curPayments.map(p=>`
-            <tr class="border-t border-slate-50">
-              <td class="p-2">${p.paid_at||'—'}</td>
-              <td class="p-2 text-right font-semibold text-green-700">${(p.amount||0).toLocaleString()}원</td>
-              <td class="p-2 text-slate-500">${p.note||''}</td>
-              <td class="p-2 text-center"><button onclick="delPayment(${p.id})" class="text-slate-300 hover:text-red-400">×</button></td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`}
+        `<table class="w-full text-xs"><thead class="bg-slate-50"><tr>
+          <th class="p-2 text-left font-medium text-slate-500">입금일</th>
+          <th class="p-2 text-right font-medium text-slate-500">금액</th>
+          <th class="p-2 text-left font-medium text-slate-500">메모</th>
+          <th class="p-2 w-8"></th>
+        </tr></thead><tbody>${curPayments.map(p=>`
+          <tr class="border-t border-slate-50">
+            <td class="p-2">${p.paid_at||'—'}</td>
+            <td class="p-2 text-right font-semibold text-green-700">${(p.amount||0).toLocaleString()}원</td>
+            <td class="p-2 text-slate-500">${p.note||''}</td>
+            <td class="p-2 text-center"><button onclick="delPayment(${p.id})" class="text-slate-300 hover:text-red-400">×</button></td>
+          </tr>`).join('')}</tbody></table>`}
     </div>
   `;
 }
@@ -486,20 +626,45 @@ async function submitShipItem(itemId, orderId) {
   ]);
   orders.sort((a,b) => b.id - a.id);
   renderList();
-  renderShipmentsTab(document.getElementById('tab-content'));
-  // 상태 배지 갱신
   await selectOrder(orderId);
 }
 
-// ─── 상태 전환 ───────────────────────────────────────────────
-async function advanceStatus(id, next) {
-  const label = STATUS_LABEL[next] || next;
-  if (!confirm(`"${label}" 상태로 변경할까요?`)) return;
-  await fetch(`/api/quotations/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:next }) });
-  orders = await fetch('/api/quotations').then(r=>r.json());
-  orders.sort((a,b) => b.id - a.id);
-  renderList();
-  await selectOrder(id);
+// ─── 메모 탭 ─────────────────────────────────────────────────
+function renderMemoTab(tc) {
+  const order = orders.find(o => o.id === curId);
+  tc.innerHTML = `
+    <div class="flex flex-col gap-5">
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold text-slate-700">고객 메모</span>
+          <span class="text-xs text-slate-400">견적서/주문서에 표시됩니다</span>
+        </div>
+        <textarea id="memo-customer" rows="5" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none">${(order?.memo_customer||'').replace(/</g,'&lt;')}</textarea>
+        <div class="flex justify-end mt-2">
+          <button onclick="saveMemo('customer')" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold text-slate-700">내부 메모 🔒</span>
+          <span class="text-xs text-slate-400">내부 직원만 볼 수 있습니다</span>
+        </div>
+        <textarea id="memo-internal" rows="5" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none">${(order?.memo_internal||'').replace(/</g,'&lt;')}</textarea>
+        <div class="flex justify-end mt-2">
+          <button onclick="saveMemo('internal')" class="text-xs px-3 py-1.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700">저장</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveMemo(type) {
+  const val = document.getElementById(`memo-${type}`).value;
+  const field = type === 'customer' ? 'memo_customer' : 'memo_internal';
+  await fetch(`/api/quotations/${curId}/memo`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ [field]: val }) });
+  const order = orders.find(o => o.id === curId);
+  if (order) order[field] = val;
+  alert('저장됐습니다.');
 }
 
 // ─── 도면 연동 ───────────────────────────────────────────────
@@ -508,7 +673,6 @@ function openDrawingModal(orderId) {
   const iframe = document.getElementById('drawing-iframe');
   iframe.src = '/drawing_app.html';
   frame.style.display = 'block';
-  // postMessage로 BOM 수신
   window._drawingOrderId = orderId;
 }
 function closeDrawing() {
@@ -518,15 +682,12 @@ function closeDrawing() {
 window.addEventListener('message', async e => {
   if (e.data?.type === 'IMPORT_DRAWING_BOM' && window._drawingOrderId) {
     closeDrawing();
-    const { bom, specs } = e.data.payload || {};
+    const { bom } = e.data.payload || {};
     if (bom?.length) {
       const items = bom.map(b => ({ name: b.name, spec: b.spec||b.note||'', unit: b.unit||'EA', qty: b.qty||0, unit_price: b.price||0, shipped_qty: 0, note: '' }));
       if (curItems.length > 0) {
-        if (!confirm('기존 품목을 대체할까요? (취소 시 추가)')) {
-          curItems = [...curItems, ...items];
-        } else {
-          curItems = items;
-        }
+        if (!confirm('기존 품목을 대체할까요? (취소 시 추가)')) curItems = [...curItems, ...items];
+        else curItems = items;
       } else {
         curItems = items;
       }
@@ -539,16 +700,18 @@ window.addEventListener('message', async e => {
   }
 });
 
-// ─── 새 견적 생성 ────────────────────────────────────────────
+// ─── 새 견적 생성 (신규) ─────────────────────────────────────
 function openNewModal() {
-  // 자동 번호 생성
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth()+1).padStart(2,'0');
   const dd = String(now.getDate()).padStart(2,'0');
   const cnt = orders.filter(o => o.date === now.toISOString().slice(0,10)).length + 1;
-  document.getElementById('new-no').value = `${yy}/${mm}/${dd}-${cnt}`;
+  const autoNo = `${yy}/${mm}/${dd}-${cnt}`;
+  document.getElementById('new-no').value = autoNo;
+  document.getElementById('compose-no').value = autoNo;
   document.getElementById('new-modal').classList.remove('hidden');
+  switchNewTab('plain');
 }
 function closeNewModal() { document.getElementById('new-modal').classList.add('hidden'); }
 
@@ -566,6 +729,229 @@ async function createOrder() {
   orders.sort((a,b) => b.id - a.id);
   renderList();
   if (orders.length) selectOrder(orders[0].id);
+}
+
+// ─── 새 탭 전환 ──────────────────────────────────────────────
+function switchNewTab(tab) {
+  ['plain','compose'].forEach(t => {
+    document.getElementById(`new-tab-${t}`).className = 'px-4 py-2 text-sm font-medium border-b-2 -mb-px ' + (t===tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500');
+    document.getElementById(`new-panel-${t}`).classList.toggle('hidden', t!==tab);
+  });
+  if (tab === 'compose') loadComposeQuotes();
+}
+
+// ─── 견적서 조합 ─────────────────────────────────────────────
+let composeExtraItems = [];
+
+async function loadComposeQuotes() {
+  const draftOrders = orders.filter(o => o.order_status === 'draft');
+  const el = document.getElementById('compose-quotes-list');
+  if (!draftOrders.length) { el.innerHTML = '<div class="p-3 text-sm text-slate-400 text-center">견적 상태 판매서가 없습니다.</div>'; return; }
+
+  const allItems = await Promise.all(draftOrders.map(o => fetch(`/api/order_items/order/${o.id}`).then(r=>r.json())));
+  const custName = o => customers.find(c=>c.id===o.customer_id)?.name || o.customer || '—';
+
+  el.innerHTML = draftOrders.map((o, idx) => {
+    const items = allItems[idx];
+    if (!items.length) return '';
+    return `<div class="border-b border-slate-100 last:border-0">
+      <div class="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-700">${custName(o)} <span class="text-slate-400 font-normal">${o.no||'#'+o.id}</span></div>
+      <div class="divide-y divide-slate-50">${items.map(it=>`
+        <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 cursor-pointer">
+          <input type="checkbox" class="compose-item-check" data-quote="${o.id}" data-item="${it.id}">
+          <span class="text-xs flex-1">${it.name} <span class="text-slate-400">${it.spec||''}</span></span>
+          <span class="text-xs text-slate-500 shrink-0">${it.qty}${it.unit} · ${(it.unit_price||0).toLocaleString()}원</span>
+        </label>`).join('')}
+      </div>
+    </div>`;
+  }).join('') || '<div class="p-3 text-sm text-slate-400 text-center">품목이 없습니다.</div>';
+
+  composeExtraItems = [];
+  renderComposeExtraItems();
+}
+
+function renderComposeExtraItems() {
+  const el = document.getElementById('compose-extra-items');
+  if (!composeExtraItems.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="border border-slate-200 rounded-lg overflow-hidden"><table class="w-full text-xs">
+    <thead class="bg-slate-50"><tr>
+      <th class="p-2 text-left">품목명</th><th class="p-2 text-left">규격</th>
+      <th class="p-2 text-right w-14">수량</th><th class="p-2 text-left w-12">단위</th>
+      <th class="p-2 text-right w-24">단가</th><th class="p-2 w-6"></th>
+    </tr></thead>
+    <tbody>${composeExtraItems.map((it,i)=>`<tr class="border-t border-slate-50">
+      <td class="p-1"><input value="${it.name||''}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].name=this.value"></td>
+      <td class="p-1"><input value="${it.spec||''}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].spec=this.value"></td>
+      <td class="p-1"><input type="number" value="${it.qty||0}" class="w-full border border-slate-200 rounded px-2 py-1 text-right" onchange="composeExtraItems[${i}].qty=parseFloat(this.value)||0"></td>
+      <td class="p-1"><input value="${it.unit||'EA'}" class="w-full border border-slate-200 rounded px-2 py-1" onchange="composeExtraItems[${i}].unit=this.value"></td>
+      <td class="p-1"><input type="number" value="${it.unit_price||0}" class="w-full border border-slate-200 rounded px-2 py-1 text-right" onchange="composeExtraItems[${i}].unit_price=parseInt(this.value)||0"></td>
+      <td class="p-1 text-center"><button onclick="composeExtraItems.splice(${i},1);renderComposeExtraItems()" class="text-slate-300 hover:text-red-400">×</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function addComposeItem() {
+  composeExtraItems.push({ name:'', spec:'', unit:'EA', qty:1, unit_price:0 });
+  renderComposeExtraItems();
+}
+
+async function createFromQuotations() {
+  const custId = document.getElementById('compose-cust').value;
+  if (!custId) return alert('고객을 선택하세요.');
+
+  const checkedItems = Array.from(document.querySelectorAll('.compose-item-check:checked'));
+  const quoteMap = {};
+  checkedItems.forEach(el => {
+    const qid = parseInt(el.dataset.quote);
+    if (!quoteMap[qid]) quoteMap[qid] = [];
+    quoteMap[qid].push(parseInt(el.dataset.item));
+  });
+  const items_from = Object.entries(quoteMap).map(([qid,ids]) => ({ quotation_id:parseInt(qid), selected_item_ids:ids }));
+  const extraValid = composeExtraItems.filter(it=>it.name);
+
+  if (!items_from.length && !extraValid.length) return alert('견적서에서 품목을 선택하거나 추가 품목을 입력하세요.');
+
+  const cust = customers.find(c=>c.id===custId);
+  const r = await fetch('/api/quotations/from-quotations', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      customer_id: custId, customer: cust?.name||'',
+      no: document.getElementById('compose-no').value,
+      date: document.getElementById('compose-date').value,
+      items_from, additional_items: extraValid,
+    })
+  }).then(r=>r.json());
+
+  closeNewModal();
+  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  if (r.id) selectOrder(r.id);
+}
+
+// ─── 출고 묶음 ───────────────────────────────────────────────
+let shipBatchItems = {}; // { orderId: [items] }
+
+async function openShipBatchModal() {
+  const shippable = orders.filter(o => ['ordered','partial'].includes(o.order_status));
+  if (!shippable.length) { alert('출고 가능한 주문서(주문/부분출고)가 없습니다.'); return; }
+
+  shipBatchItems = {};
+  await Promise.all(shippable.map(async o => {
+    shipBatchItems[o.id] = await fetch(`/api/order_items/order/${o.id}`).then(r=>r.json());
+  }));
+
+  const custName = o => customers.find(c=>c.id===o.customer_id)?.name || o.customer || '—';
+
+  document.getElementById('ship-batch-content').innerHTML = shippable.map(o => {
+    const unshipped = (shipBatchItems[o.id]||[]).filter(it => (it.qty||0) > (it.shipped_qty||0));
+    if (!unshipped.length) return '';
+    return `<div class="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+      <div class="bg-slate-50 px-3 py-2 flex items-center gap-2">
+        <input type="checkbox" id="sbo-${o.id}" class="sbo-check" data-order="${o.id}" onchange="toggleSBOrder(${o.id})">
+        <label for="sbo-${o.id}" class="text-sm font-medium cursor-pointer">${custName(o)}</label>
+        <span class="text-xs text-slate-400">${o.no||'#'+o.id}</span>
+      </div>
+      <div id="sbo-items-${o.id}" class="hidden">
+        <table class="w-full text-xs"><thead class="bg-slate-50/50"><tr>
+          <th class="p-2 text-left font-medium text-slate-500">품목</th>
+          <th class="p-2 text-right font-medium text-slate-500 w-20">잔여</th>
+          <th class="p-2 text-right font-medium text-slate-500 w-24">이번 출고</th>
+        </tr></thead><tbody>${unshipped.map(it=>`
+          <tr class="border-t border-slate-100">
+            <td class="p-2">${it.name} <span class="text-slate-400">${it.spec||''}</span></td>
+            <td class="p-2 text-right text-orange-600">${(it.qty||0)-(it.shipped_qty||0)} ${it.unit}</td>
+            <td class="p-2"><input type="number" id="sbq-${it.id}" min="0" max="${(it.qty||0)-(it.shipped_qty||0)}" step="0.01" value="0" data-order="${o.id}" data-item="${it.id}" class="w-full border border-slate-200 rounded px-2 py-1 text-right text-xs"></td>
+          </tr>`).join('')}</tbody></table>
+      </div>
+    </div>`;
+  }).join('') || '<div class="p-4 text-sm text-slate-400 text-center">미출고 품목이 없습니다.</div>';
+
+  document.getElementById('sb-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('sb-note').value = '';
+  document.getElementById('ship-batch-modal').classList.remove('hidden');
+}
+
+function toggleSBOrder(orderId) {
+  const checked = document.getElementById(`sbo-${orderId}`).checked;
+  document.getElementById(`sbo-items-${orderId}`).classList.toggle('hidden', !checked);
+}
+
+function closeShipBatchModal() { document.getElementById('ship-batch-modal').classList.add('hidden'); }
+
+async function submitShipBatch() {
+  const checkedOrders = Array.from(document.querySelectorAll('.sbo-check:checked')).map(el => parseInt(el.dataset.order));
+  if (!checkedOrders.length) { alert('주문서를 선택하세요.'); return; }
+
+  const items = [];
+  for (const orderId of checkedOrders) {
+    for (const it of (shipBatchItems[orderId]||[])) {
+      const remain = (it.qty||0) - (it.shipped_qty||0);
+      if (remain <= 0) continue;
+      const qty = parseFloat(document.getElementById(`sbq-${it.id}`)?.value || 0);
+      if (qty > 0) items.push({ order_id: orderId, item_id: it.id, qty });
+    }
+  }
+  if (!items.length) { alert('출고 수량을 입력하세요.'); return; }
+
+  await fetch('/api/shipment-batches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    items, shipped_at: document.getElementById('sb-date').value, note: document.getElementById('sb-note').value,
+  })});
+
+  closeShipBatchModal();
+  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  if (curId) await selectOrder(curId);
+  alert('출고 처리됐습니다.');
+}
+
+// ─── 완료 묶음 ───────────────────────────────────────────────
+async function openCompletionBatchModal() {
+  const completable = orders.filter(o => o.order_status === 'shipped');
+  if (!completable.length) { alert('완료 처리 가능한 주문서가 없습니다.\n(출고 상태 주문서가 있어야 합니다.)'); return; }
+
+  const custName = o => customers.find(c=>c.id===o.customer_id)?.name || o.customer || '—';
+
+  document.getElementById('completion-batch-content').innerHTML = `
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden mb-3">
+      <table class="w-full text-xs"><thead class="bg-slate-50"><tr>
+        <th class="p-2 w-8"></th>
+        <th class="p-2 text-left font-medium text-slate-500">고객</th>
+        <th class="p-2 text-left font-medium text-slate-500">번호</th>
+        <th class="p-2 text-right font-medium text-slate-500">금액</th>
+        <th class="p-2 text-right font-medium text-slate-500">일자</th>
+      </tr></thead><tbody>${completable.map(o=>`
+        <tr class="border-t border-slate-50">
+          <td class="p-2 text-center"><input type="checkbox" class="cbo-check" value="${o.id}"></td>
+          <td class="p-2 font-medium">${custName(o)}</td>
+          <td class="p-2 text-slate-500">${o.no||'#'+o.id}</td>
+          <td class="p-2 text-right">${(o.total||0).toLocaleString()}원</td>
+          <td class="p-2 text-right">${o.date||''}</td>
+        </tr>`).join('')}</tbody></table>
+    </div>`;
+
+  document.getElementById('cb-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cb-note').value = '';
+  document.getElementById('completion-batch-modal').classList.remove('hidden');
+}
+
+function closeCompletionBatchModal() { document.getElementById('completion-batch-modal').classList.add('hidden'); }
+
+async function submitCompletionBatch() {
+  const orderIds = Array.from(document.querySelectorAll('.cbo-check:checked')).map(el => parseInt(el.value));
+  if (!orderIds.length) { alert('주문서를 선택하세요.'); return; }
+
+  await fetch('/api/completion-batches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    order_ids: orderIds, completed_at: document.getElementById('cb-date').value, note: document.getElementById('cb-note').value,
+  })});
+
+  closeCompletionBatchModal();
+  orders = await fetch('/api/quotations').then(r=>r.json());
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  if (curId && orderIds.includes(curId)) await selectOrder(curId);
+  alert('완료 처리됐습니다.');
 }
 
 init();

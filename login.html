@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>로그인 — ColdStorage</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  * { font-family: 'Pretendard', sans-serif; }
+</style>
+</head>
+<body class="bg-slate-900 min-h-screen flex items-center justify-center">
+
+<div class="w-[340px] bg-white rounded-2xl shadow-xl p-7">
+  <div class="text-center mb-6">
+    <div class="text-3xl mb-2">❄️</div>
+    <h1 class="font-bold text-lg">ColdStorage Master</h1>
+    <p class="text-xs text-slate-400 mt-1">영업관리 시스템</p>
+  </div>
+
+  <form id="form" class="flex flex-col gap-3">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="비밀번호"
+           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400">
+    <p id="err" class="text-xs text-red-600 hidden"></p>
+    <button type="submit" id="btn"
+            class="w-full bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+      로그인
+    </button>
+  </form>
+</div>
+
+<script>
+const form = document.getElementById('form');
+const pw   = document.getElementById('pw');
+const err  = document.getElementById('err');
+const btn  = document.getElementById('btn');
+
+pw.focus();
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  err.classList.add('hidden');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/login', {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify({ password: pw.value }),
+    });
+    if (r.ok) { location.href = '/'; return; }
+    const d = await r.json().catch(() => ({}));
+    err.textContent = d.error || '로그인에 실패했습니다.';
+    err.classList.remove('hidden');
+    pw.select();
+  } catch {
+    err.textContent = '서버에 연결할 수 없습니다.';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
