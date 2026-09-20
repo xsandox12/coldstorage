@@ -198,8 +198,8 @@ function renderUnpaid(tc) {
         const pct = o.total ? Math.round(o.total_paid/o.total*100) : 0;
         return `<tr class="border-t border-slate-50 hover:bg-slate-50">
           <td class="p-3 font-medium">${name}</td>
-          <td class="p-3 text-xs text-slate-500">${o.no||'#'+o.id}</td>
-          <td class="p-3 text-xs text-slate-500">${o.date||''}</td>
+          <td class="p-3 text-xs text-slate-500">${esc(o.no||'#'+o.id)}</td>
+          <td class="p-3 text-xs text-slate-500">${esc(o.date||'')}</td>
           <td class="p-3 text-right">${(o.total||0).toLocaleString()}</td>
           <td class="p-3 text-right text-green-600">${(o.total_paid||0).toLocaleString()}</td>
           <td class="p-3 text-right font-semibold text-red-600">${unpaid.toLocaleString()}</td>
@@ -230,11 +230,11 @@ function renderHistory(tc) {
         <th class="p-3 w-10"></th>
       </tr></thead>
       <tbody>${rows.map(p => `<tr class="border-t border-slate-50 hover:bg-slate-50">
-        <td class="p-3 text-xs">${p.paid_at||'—'}</td>
-        <td class="p-3 text-xs text-slate-500">${p.no||'#'+p.order_id}</td>
-        <td class="p-3 text-xs">${p.customer||'—'}</td>
+        <td class="p-3 text-xs">${esc(p.paid_at||'—')}</td>
+        <td class="p-3 text-xs text-slate-500">${esc(p.no||'#'+p.order_id)}</td>
+        <td class="p-3 text-xs">${esc(p.customer||'—')}</td>
         <td class="p-3 text-right font-semibold text-green-700">${(p.amount||0).toLocaleString()}원</td>
-        <td class="p-3 text-xs text-slate-500">${p.note||''}</td>
+        <td class="p-3 text-xs text-slate-500">${esc(p.note||'')}</td>
         <td class="p-3 text-center"><button onclick="delPayment(${p.id},${p.order_id})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
       </tr>`).join('')}</tbody>
     </table>

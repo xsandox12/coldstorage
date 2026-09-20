@@ -105,7 +105,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="submitAS()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">접수</button>
+      <button onclick="guard(this, submitAS)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">접수</button>
     </div>
   </div>
 </div>
@@ -174,7 +174,7 @@ function renderList() {
       <div class="flex items-center justify-between">
         <span class="text-xs text-slate-400">${esc(a.date||'')}</span>
         <div class="flex gap-2">
-          ${next ? `<button onclick="advance('${a.id}','${next}')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">${STATUS_BTN[a.status]||'→'}</button>` : ''}
+          ${next ? `<button onclick="guard(this, () => advance('${a.id}','${next}'))" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">${STATUS_BTN[a.status]||'→'}</button>` : ''}
           <button onclick="deleteAS('${a.id}')" class="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50 text-slate-500">삭제</button>
         </div>
       </div>

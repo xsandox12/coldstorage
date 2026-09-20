@@ -80,7 +80,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button onclick="closeAddModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="addCustomer()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">추가</button>
+      <button onclick="guard(this, addCustomer)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">추가</button>
     </div>
   </div>
 </div>
@@ -243,7 +243,7 @@ function startEdit(id) {
       </div>
       <div class="flex justify-end gap-2 mt-4">
         <button onclick="selectCustomer('${id}')" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-        <button onclick="saveEdit('${id}')" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+        <button onclick="guard(this, () => saveEdit('${id}'))" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
       </div>
     </div>`;
 }

@@ -135,7 +135,7 @@
       </div>
       <div class="flex justify-end gap-2 mt-5">
         <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-        <button onclick="createOrder()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">생성</button>
+        <button onclick="guard(this, createOrder)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">생성</button>
       </div>
     </div>
     <!-- 견적서 조합 탭 -->
@@ -169,7 +169,7 @@
       <div id="compose-extra-items" class="mb-3"></div>
       <div class="flex justify-end gap-2">
         <button onclick="closeNewModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-        <button onclick="createFromQuotations()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">주문서 생성</button>
+        <button onclick="guard(this, createFromQuotations)" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">주문서 생성</button>
       </div>
     </div>
   </div>
@@ -196,7 +196,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-4">
       <button onclick="closeShipBatchModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="submitShipBatch()" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">출고 처리</button>
+      <button onclick="guard(this, submitShipBatch)" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">출고 처리</button>
     </div>
   </div>
 </div>
@@ -222,7 +222,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-4">
       <button onclick="closeCompletionBatchModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
-      <button onclick="submitCompletionBatch()" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">완료 처리</button>
+      <button onclick="guard(this, submitCompletionBatch)" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">완료 처리</button>
     </div>
   </div>
 </div>
@@ -241,7 +241,7 @@
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button onclick="closeCancelModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">돌아가기</button>
-      <button onclick="submitCancel()" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">취소 처리</button>
+      <button onclick="guard(this, submitCancel)" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700">취소 처리</button>
     </div>
   </div>
 </div>
@@ -296,7 +296,7 @@ function renderList() {
         <span class="status-badge ${STATUS_CLS[o.order_status]||'s-draft'}">${STATUS_LABEL[o.order_status]||o.order_status}</span>
       </div>
       <div class="flex items-center justify-between">
-        <span class="text-xs text-slate-400">${o.no||'#'+o.id} · ${o.date||''}</span>
+        <span class="text-xs text-slate-400">${esc(o.no||'#'+o.id)} · ${esc(o.date||'')}</span>
         <div class="text-right">
           <div class="text-xs font-semibold text-slate-700">${(o.total||0).toLocaleString()}원</div>
           ${unpaid>0 && tracksUnpaid(o.order_status) ? `<div class="text-xs text-red-500">미수 ${num(unpaid)}원</div>` : ''}
@@ -348,7 +348,7 @@ async function selectOrder(id) {
             <span class="font-bold text-base">${esc(custName)}</span>
             <span class="status-badge ${STATUS_CLS[order.order_status]||'s-draft'}">${STATUS_LABEL[order.order_status]||order.order_status}</span>
           </div>
-          <div class="text-xs text-slate-400">${order.no||'#'+order.id} · ${order.date||''} · ${order.ref||'한남냉동테크(주)'}</div>
+          <div class="text-xs text-slate-400">${esc(order.no||'#'+order.id)} · ${esc(order.date||'')} · ${esc(order.ref||'한남냉동테크(주)')}</div>
           ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${esc(order.cancelled_reason)}</div>` : ''}
         </div>
         <div class="flex gap-2 flex-wrap justify-end">
@@ -474,7 +474,7 @@ function renderItemsTab(tc) {
       <span class="text-sm font-semibold">품목 목록</span>
       ${!isDone ? `<div class="flex gap-2">
         <button onclick="addItemRow()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50">+ 행 추가</button>
-        <button onclick="saveItems()" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+        <button onclick="guard(this, saveItems)" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
       </div>` : ''}
     </div>
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -509,8 +509,8 @@ function renderItemsTab(tc) {
 function itemRow(it, i, isDone) {
   const amt = (it.qty||0)*(it.unit_price||0);
   if (isDone) return `<tr class="border-t border-slate-50">
-    <td class="p-2">${it.name}</td><td class="p-2 text-slate-500">${it.spec||''}</td>
-    <td class="p-2 text-right">${it.qty}</td><td class="p-2">${it.unit}</td>
+    <td class="p-2">${esc(it.name)}</td><td class="p-2 text-slate-500">${esc(it.spec||'')}</td>
+    <td class="p-2 text-right">${qty(it.qty)}</td><td class="p-2">${esc(it.unit)}</td>
     <td class="p-2 text-right">${(it.unit_price||0).toLocaleString()}</td>
     <td class="p-2 text-right">${amt.toLocaleString()}</td>
     <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
@@ -564,7 +564,7 @@ function renderPaymentsTab(tc) {
       </div>
       <div class="flex justify-end gap-2">
         <button onclick="document.getElementById('pay-form').classList.add('hidden')" class="text-xs px-3 py-1 border border-slate-200 rounded hover:bg-slate-50">취소</button>
-        <button onclick="submitPayment()" class="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">등록</button>
+        <button onclick="guard(this, submitPayment)" class="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">등록</button>
       </div>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -576,9 +576,9 @@ function renderPaymentsTab(tc) {
           <th class="p-2 w-8"></th>
         </tr></thead><tbody>${curPayments.map(p=>`
           <tr class="border-t border-slate-50">
-            <td class="p-2">${p.paid_at||'—'}</td>
+            <td class="p-2">${esc(p.paid_at||'—')}</td>
             <td class="p-2 text-right font-semibold text-green-700">${(p.amount||0).toLocaleString()}원</td>
-            <td class="p-2 text-slate-500">${p.note||''}</td>
+            <td class="p-2 text-slate-500">${esc(p.note||'')}</td>
             <td class="p-2 text-center"><button onclick="delPayment(${p.id})" class="text-slate-300 hover:text-red-400">×</button></td>
           </tr>`).join('')}</tbody></table>`}
     </div>
@@ -629,12 +629,12 @@ function renderShipmentsTab(tc) {
         <tbody>${curItems.map(it => {
           const remain = (it.qty||0) - (it.shipped_qty||0);
           return `<tr class="border-t border-slate-50">
-            <td class="p-2">${it.name}<br><span class="text-slate-400">${it.spec||''}</span></td>
-            <td class="p-2 text-right">${it.qty} ${it.unit}</td>
+            <td class="p-2">${esc(it.name)}<br><span class="text-slate-400">${esc(it.spec||'')}</span></td>
+            <td class="p-2 text-right">${qty(it.qty)} ${esc(it.unit)}</td>
             <td class="p-2 text-right text-blue-600">${it.shipped_qty||0}</td>
             <td class="p-2 text-right ${remain>0?'text-orange-600':'text-slate-400'}">${remain}</td>
             ${canShip ? `<td class="p-2"><input type="number" id="ship-${it.id}" min="0" max="${remain}" step="0.01" value="0" style="width:70px;border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;text-align:right"></td>
-            <td class="p-2"><button onclick="submitShipItem(${it.id},${curId})" class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">출고</button></td>` : ''}
+            <td class="p-2"><button onclick="guard(this, () => submitShipItem(${it.id},${curId}))" class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">출고</button></td>` : ''}
           </tr>`;
         }).join('')}</tbody>
       </table>
@@ -668,7 +668,7 @@ function renderMemoTab(tc) {
         </div>
         <textarea id="memo-customer" rows="5" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none">${(order?.memo_customer||'').replace(/</g,'&lt;')}</textarea>
         <div class="flex justify-end mt-2">
-          <button onclick="saveMemo('customer')" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+          <button onclick="guard(this, () => saveMemo('customer'))" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
         </div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
@@ -678,7 +678,7 @@ function renderMemoTab(tc) {
         </div>
         <textarea id="memo-internal" rows="5" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none">${(order?.memo_internal||'').replace(/</g,'&lt;')}</textarea>
         <div class="flex justify-end mt-2">
-          <button onclick="saveMemo('internal')" class="text-xs px-3 py-1.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700">저장</button>
+          <button onclick="guard(this, () => saveMemo('internal'))" class="text-xs px-3 py-1.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700">저장</button>
         </div>
       </div>
     </div>
@@ -782,12 +782,12 @@ async function loadComposeQuotes() {
     const items = allItems[idx];
     if (!items.length) return '';
     return `<div class="border-b border-slate-100 last:border-0">
-      <div class="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-700">${custName(o)} <span class="text-slate-400 font-normal">${o.no||'#'+o.id}</span></div>
+      <div class="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-700">${esc(custName(o))} <span class="text-slate-400 font-normal">${esc(o.no||'#'+o.id)}</span></div>
       <div class="divide-y divide-slate-50">${items.map(it=>`
         <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 cursor-pointer">
           <input type="checkbox" class="compose-item-check" data-quote="${o.id}" data-item="${it.id}">
-          <span class="text-xs flex-1">${it.name} <span class="text-slate-400">${it.spec||''}</span></span>
-          <span class="text-xs text-slate-500 shrink-0">${it.qty}${it.unit} · ${(it.unit_price||0).toLocaleString()}원</span>
+          <span class="text-xs flex-1">${esc(it.name)} <span class="text-slate-400">${esc(it.spec||'')}</span></span>
+          <span class="text-xs text-slate-500 shrink-0">${qty(it.qty)}${esc(it.unit)} · ${(it.unit_price||0).toLocaleString()}원</span>
         </label>`).join('')}
       </div>
     </div>`;
@@ -873,8 +873,8 @@ async function openShipBatchModal() {
     return `<div class="mb-3 border border-slate-200 rounded-lg overflow-hidden">
       <div class="bg-slate-50 px-3 py-2 flex items-center gap-2">
         <input type="checkbox" id="sbo-${o.id}" class="sbo-check" data-order="${o.id}" onchange="toggleSBOrder(${o.id})">
-        <label for="sbo-${o.id}" class="text-sm font-medium cursor-pointer">${custName(o)}</label>
-        <span class="text-xs text-slate-400">${o.no||'#'+o.id}</span>
+        <label for="sbo-${o.id}" class="text-sm font-medium cursor-pointer">${esc(custName(o))}</label>
+        <span class="text-xs text-slate-400">${esc(o.no||'#'+o.id)}</span>
       </div>
       <div id="sbo-items-${o.id}" class="hidden">
         <table class="w-full text-xs"><thead class="bg-slate-50/50"><tr>
@@ -883,9 +883,9 @@ async function openShipBatchModal() {
           <th class="p-2 text-right font-medium text-slate-500 w-24">이번 출고</th>
         </tr></thead><tbody>${unshipped.map(it=>`
           <tr class="border-t border-slate-100">
-            <td class="p-2">${it.name} <span class="text-slate-400">${it.spec||''}</span></td>
-            <td class="p-2 text-right text-orange-600">${(it.qty||0)-(it.shipped_qty||0)} ${it.unit}</td>
-            <td class="p-2"><input type="number" id="sbq-${it.id}" min="0" max="${(it.qty||0)-(it.shipped_qty||0)}" step="0.01" value="0" data-order="${o.id}" data-item="${it.id}" class="w-full border border-slate-200 rounded px-2 py-1 text-right text-xs"></td>
+            <td class="p-2">${esc(it.name)} <span class="text-slate-400">${esc(it.spec||'')}</span></td>
+            <td class="p-2 text-right text-orange-600">${qty((it.qty||0)-(it.shipped_qty||0))} ${esc(it.unit)}</td>
+            <td class="p-2"><input type="number" id="sbq-${it.id}" min="0" max="${qty((it.qty||0)-(it.shipped_qty||0))}" step="0.01" value="0" data-order="${o.id}" data-item="${it.id}" class="w-full border border-slate-200 rounded px-2 py-1 text-right text-xs"></td>
           </tr>`).join('')}</tbody></table>
       </div>
     </div>`;
@@ -948,10 +948,10 @@ async function openCompletionBatchModal() {
       </tr></thead><tbody>${completable.map(o=>`
         <tr class="border-t border-slate-50">
           <td class="p-2 text-center"><input type="checkbox" class="cbo-check" value="${o.id}"></td>
-          <td class="p-2 font-medium">${custName(o)}</td>
-          <td class="p-2 text-slate-500">${o.no||'#'+o.id}</td>
+          <td class="p-2 font-medium">${esc(custName(o))}</td>
+          <td class="p-2 text-slate-500">${esc(o.no||'#'+o.id)}</td>
           <td class="p-2 text-right">${(o.total||0).toLocaleString()}원</td>
-          <td class="p-2 text-right">${o.date||''}</td>
+          <td class="p-2 text-right">${esc(o.date||'')}</td>
         </tr>`).join('')}</tbody></table>
     </div>`;
 
