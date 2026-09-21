@@ -338,6 +338,12 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
                         <i class="fa-solid fa-folder-open"></i> 불러오기
                     </button>
                 </div>
+                <!-- 견적(ColdStorage)에서 ?mode=apply 로 열었을 때만 보인다.
+                     단독으로 쓸 때는 보낼 상대가 없다. onload 에서 숨김을 푼다. -->
+                <button id="send-bom-btn" onclick="sendBOMToParent()" style="display:none"
+                        class="w-full mt-2 p-2.5 bg-emerald-600 text-white rounded-xl font-black text-[11px] hover:bg-emerald-700 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-file-invoice-dollar"></i> 견적서로 보내기
+                </button>
             </div>
 
             <div class="card p-4 space-y-4">
@@ -4299,8 +4305,14 @@ table tbody td{padding:6px 10px!important;border-bottom:1px solid var(--line-2)!
             updateDrawing();
             // ?load=<도면 id> — 견적에 연결된 도면을 이어서 연다.
             // SaaS 판매 상세의 "도면 연동" 이 quotations.drawing_id 를 붙여 연다.
-            const loadId = new URLSearchParams(window.location.search).get('load');
+            const params = new URLSearchParams(window.location.search);
+            const loadId = params.get('load');
             if (loadId) loadDrawing(loadId).catch(() => {});
+            // 견적에서 연 경우에만 "견적서로 보내기" 를 띄운다
+            if (params.get('mode') === 'apply') {
+                const b = document.getElementById('send-bom-btn');
+                if (b) b.style.display = '';
+            }
         };
 
         async function loadFromZip(e) {

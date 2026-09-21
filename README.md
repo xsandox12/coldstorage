@@ -21,8 +21,12 @@ ADMIN_PASSWORD=원하는비밀번호 node server.js     # http://localhost:9000
 ## 테스트
 
 ```bash
-bash test/smoke.sh
+bash test/smoke.sh        # 엔드포인트 단위 (153건)
+bash test/scenarios.sh    # 실무 업무 흐름 (102건)
 ```
+
+`smoke.sh` 는 API 하나하나를 보고, `scenarios.sh` 는 회사가 일하는 순서대로 이어서
+밟는다 (수주→계약금→분할출고→잔금→완료, 되돌리기, 월말 마감 등).
 
 `BASE` 를 주지 않으면 임시 `DATA_DIR` 과 빈 포트로 서버를 직접 띄우므로 실제 데이터를
 건드리지 않는다. 운영 중인 서버를 검사하려면 `BASE=https://... bash test/smoke.sh`.

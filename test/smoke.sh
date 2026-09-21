@@ -175,6 +175,12 @@ check "★ 도면 앱이 구조화된 BOM 을 보냄" "true" \
       "$(body "$BASE/drawing_app.html" | grep -q 'items:     bomToItems()' && echo true || echo false)"
 check "  ?load= 로 도면 이어 열기" "true" \
       "$(body "$BASE/drawing_app.html" | grep -q "get('load')" && echo true || echo false)"
+# 함수가 있다고 쓸 수 있는 건 아니다 — 실제로 이걸 부르는 버튼이 없어서
+# 배관은 멀쩡한데 화면에서는 도달할 수 없던 적이 있다.
+check "★ 견적서로 보내는 버튼이 실제로 있음" "true" \
+      "$(body "$BASE/drawing_app.html" | grep -qE 'onclick="[^\"]*sendBOMToParent' && echo true || echo false)"
+check "  견적에서 열었을 때만 보임" "true" \
+      "$(body "$BASE/drawing_app.html" | grep -q "send-bom-btn" && echo true || echo false)"
 check "drawing_id 기록 -> 200"    200 "$(code -X PATCH "$BASE/api/quotations/$OID/drawing" \
                                         -H 'Content-Type: application/json' -d '{"drawing_id":"12345"}')"
 check "  실제로 저장됨"           "12345" \
