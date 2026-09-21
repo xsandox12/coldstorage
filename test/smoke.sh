@@ -1,58 +1,13 @@
 #!/usr/bin/env bash
-# ColdStorage Master — API 스모크 테스트
+# ColdStorage Master — API 스모크 테스트 (엔드포인트 단위)
 #
 #   ./test/smoke.sh                       # 일회용 DB로 서버를 직접 띄워 테스트 (기본)
 #   BASE=https://coldstorage.agonyang.com ./test/smoke.sh   # 기존 서버 대상
 #   USERNAME=admin PASSWORD=xxxx ./test/smoke.sh
 #
-# BASE 를 주지 않으면 임시 디렉토리에 새 DB 를 만들어 거기에만 쓴다.
-# 실 데이터(data/)는 절대 건드리지 않는다 — 과거에 테스트가 실 테이블을 비운 적이 있다.
+# 업무 흐름을 순서대로 잇는 테스트는 scenarios.sh 에 있다.
 
-set -u
-
-USERNAME="${USERNAME:-admin}"
-PASSWORD="${PASSWORD:-0000}"
-CK="$(mktemp)"
-PASS=0; FAIL=0
-OWN_SERVER=""
-TMPDATA=""
-
-cleanup() {
-  if [ -n "$OWN_SERVER" ]; then kill "$OWN_SERVER" 2>/dev/null; sleep 1; fi
-  [ -n "$TMPDATA" ] && rm -rf "$TMPDATA" 2>/dev/null
-  rm -f "$CK"
-  return 0
-}
-trap cleanup EXIT
-
-if [ -z "${BASE:-}" ]; then
-  TMPDATA="$(mktemp -d)"
-  PORT=$(( 19000 + (RANDOM % 1000) ))
-  BASE="http://localhost:$PORT"
-  echo "일회용 서버 기동 — DATA_DIR=$TMPDATA PORT=$PORT"
-  DATA_DIR="$TMPDATA" PORT="$PORT" ADMIN_USER="$USERNAME" ADMIN_PASSWORD="$PASSWORD" \
-    node "$(dirname "$0")/../server.js" >"$TMPDATA/server.log" 2>&1 &
-  OWN_SERVER=$!
-  for _ in $(seq 1 30); do
-    curl -s -o /dev/null "$BASE/login.html" && break
-    sleep 0.3
-  done
-fi
-
-red()   { printf '\033[31m%s\033[0m' "$1"; }
-green() { printf '\033[32m%s\033[0m' "$1"; }
-
-# check <설명> <기대값> <실제값>
-check() {
-  if [ "$2" = "$3" ]; then PASS=$((PASS+1)); printf '  %s %s\n' "$(green ok)" "$1"
-  else FAIL=$((FAIL+1)); printf '  %s %s (기대 %s, 실제 %s)\n' "$(red FAIL)" "$1" "$2" "$3"; fi
-}
-
-code()  { curl -s -b "$CK" -o /dev/null -w '%{http_code}' "$@"; }
-body()  { curl -s -b "$CK" "$@"; }
-jsonq() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(($1))}catch{console.log('')}})"; }
-
-alive() { curl -s -o /dev/null -w '%{http_code}' "$BASE/login.html"; }
+. "$(dirname "$0")/lib.sh"
 
 echo "대상: $BASE"
 echo
@@ -66,8 +21,7 @@ check "틀린 비밀번호 -> 401"      401 "$(curl -s -o /dev/null -w '%{http_c
                                         -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\",\"password\":\"__wrong__\"}")"
 check "없는 아이디 -> 401"        401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/login" \
                                         -H 'Content-Type: application/json' -d "{\"username\":\"__nobody__\",\"password\":\"$PASSWORD\"}")"
-curl -s -c "$CK" -o /dev/null -X POST "$BASE/api/login" \
-     -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}"
+login
 check "로그인 후 API -> 200"      200 "$(code "$BASE/api/dashboard")"
 check "/api/me 가 사용자 반환"    "$USERNAME" "$(body "$BASE/api/me" | jsonq 'JSON.parse(s).username')"
 
@@ -497,6 +451,4 @@ code -X DELETE "$BASE/api/quotations/$OID" >/dev/null
 check "테스트 주문 삭제됨" "0" "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.no==='$STAMP').length")"
 
 
-echo
-printf '통과 %s / 실패 %s\n' "$(green "$PASS")" "$([ "$FAIL" -gt 0 ] && red "$FAIL" || echo "$FAIL")"
-[ "$FAIL" -eq 0 ]
+summary
