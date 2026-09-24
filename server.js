@@ -170,6 +170,14 @@ db.exec(`
     changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     reason TEXT DEFAULT ''
   );
+  -- 자주 나가는 품목 묶음. blobs.templates 는 도면 쪽 슬롯이라 섞지 않는다.
+  CREATE TABLE IF NOT EXISTS item_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT DEFAULT '',
+    items_json TEXT DEFAULT '[]',
+    created_by TEXT DEFAULT '',
+    created_at TEXT DEFAULT ''
+  );
   CREATE TABLE IF NOT EXISTS quotation_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER,
@@ -1558,6 +1566,42 @@ async function handle(req, res) {
     return json(res, 200, { ok:true, id, name, similar });
   }
 
+  /* 품목 템플릿. 같은 구성이 반복되는 공사가 있는데 매번 처음부터 적었다.
+   * 제네릭 CRUD 를 열지 않는 이유는 items_json 이 배열인지 확인해야 하고,
+   * 만든 사람을 화면 입력이 아니라 세션에서 가져와야 하기 때문이다. */
+  if (pathname === '/api/item_templates') {
+    if (method === 'GET') {
+      return json(res, 200, db.prepare('SELECT * FROM item_templates ORDER BY name').all()
+        .map(t => ({ ...t, items: JSON.parse(t.items_json || '[]') })));
+    }
+    if (method === 'POST') {
+      const body = await parseBody(req);
+      const name = String(body?.name || '').trim();
+      if (!name) return json(res, 400, { ok:false, error:'템플릿 이름을 입력하세요.' });
+      if (!Array.isArray(body?.items) || !body.items.length)
+        return json(res, 400, { ok:false, error:'저장할 품목이 없습니다.' });
+      if (db.prepare('SELECT 1 FROM item_templates WHERE name=?').get(name))
+        return json(res, 409, { ok:false, error:'같은 이름의 템플릿이 있습니다.' });
+      // 수량·출고 이력은 템플릿에 넣지 않는다. 다음 견적의 수량은 그때 정한다.
+      const items = body.items.map(it => ({
+        name: String(it?.name || '').trim(), spec: String(it?.spec || '').trim(),
+        unit: String(it?.unit || 'EA'), qty: Number(it?.qty) || 0,
+        unit_price: Math.max(0, parseInt(it?.unit_price, 10) || 0),
+        note: String(it?.note || ''), tax_free: it?.tax_free ? 1 : 0,
+      })).filter(it => it.name);
+      if (!items.length) return json(res, 400, { ok:false, error:'품목명이 있는 행이 없습니다.' });
+      const r = db.prepare(`INSERT INTO item_templates (name,items_json,created_by,created_at)
+                            VALUES (?,?,?,datetime('now','localtime'))`)
+                  .run(name, JSON.stringify(items), req.user ? (req.user.name || req.user.username) : '');
+      return json(res, 200, { ok:true, id: r.lastInsertRowid, count: items.length });
+    }
+  }
+  const mTpl = pathname.match(/^\/api\/item_templates\/(\d+)$/);
+  if (mTpl && method === 'DELETE') {
+    db.prepare('DELETE FROM item_templates WHERE id=?').run(parseInt(mTpl[1], 10));
+    return json(res, 200, { ok:true });
+  }
+
   /* 이 품목을 얼마에 적었었는지 알려준다. 근거는 두 가지뿐이고 순서가 있다 —
    * ① 같은 품목을 실제로 넣었던 가장 최근 견적의 단가, ② 카탈로그 가격.
    * 실제 거래가가 카탈로그 정가보다 앞선다.
@@ -1665,6 +1709,47 @@ async function handle(req, res) {
       })();
     }
     recalcTotal(LINE_ITEM.sales, newId);   // 공급가액·부가세까지 한 곳에서 계산한다
+    return json(res, 200, { ok:true, id: newId, no });
+  }
+
+  // ── POST /api/quotations/:id/copy ────────────────────────────
+  /* 지난 견적을 그대로 한 건 더. 가져오는 것과 안 가져오는 것이 갈린다.
+   * 가져온다: 품목·거래처·현장명·메모·과세구분·할인.
+   * 안 가져온다: 출고·입금·상태 이력·도면 연결(같은 도면을 두 건이 함께 물면
+   * 한쪽을 고칠 때 다른 쪽이 조용히 바뀐다)·유효기간(오늘 기준으로 다시 잡는다). */
+  const mCopy = pathname.match(/^\/api\/quotations\/(\d+)\/copy$/);
+  if (mCopy && method === 'POST') {
+    const srcId = parseInt(mCopy[1], 10);
+    const src = db.prepare('SELECT * FROM quotations WHERE id=?').get(srcId);
+    if (!src) return json(res, 404, { ok:false, error:'원본을 찾을 수 없습니다.' });
+
+    const now = new Date();
+    const no = nextOrderNo(now);
+    const cols = columnsOf('quotations');
+    const extra = ['site_name','delivery_terms','payment_terms','discount','vat_mode','vat_rate','tax_free']
+                    .filter(c => cols.has(c));
+    const newId = db.transaction(() => {
+      const names = ['no','date','customer_id','customer','order_status','total','total_paid',
+                     'items','ref','status','created_by','memo_customer','memo_internal', ...extra];
+      const vals  = [no, today(), src.customer_id || '', src.customer || '', 'draft', 0, 0,
+                     src.items || '', companyName(), '진행중',
+                     req.user.name || req.user.username, src.memo_customer || '', src.memo_internal || '',
+                     ...extra.map(c => src[c])];
+      if (cols.has('valid_until')) { names.push('valid_until'); vals.push(defaultValidUntil(today())); }
+      const id = db.prepare(`INSERT INTO quotations (${names.join(',')})
+                             VALUES (${names.map(()=>'?').join(',')})`).run(...vals).lastInsertRowid;
+
+      const items = db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(srcId);
+      const ins = db.prepare(`INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order,amount,tax_free)
+                              VALUES (?,?,?,?,?,?,0,?,?,?,?)`);
+      items.forEach((it, i) => ins.run(id, it.name, it.spec||'', it.unit||'EA', it.qty||0,
+                                       it.unit_price||0, it.note||'', i,
+                                       Math.round((it.qty||0)*(it.unit_price||0)), it.tax_free?1:0));
+      db.prepare('INSERT INTO quotation_sources (order_id,source_quotation_id,source_item_ids) VALUES (?,?,?)')
+        .run(id, srcId, JSON.stringify(items.map(it => it.id)));
+      recalcTotal(LINE_ITEM.sales, id);
+      return id;
+    })();
     return json(res, 200, { ok:true, id: newId, no });
   }
 

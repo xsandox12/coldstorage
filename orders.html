@@ -289,6 +289,30 @@
   </div>
 </div>
 
+<!-- 자주 나가는 품목 묶음. 저장과 불러오기를 한 화면에 둔다. -->
+<div id="tpl-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[560px] shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-base">품목 템플릿</h2>
+      <button onclick="closeTplModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <div class="bg-slate-50 rounded-lg p-3 mb-4">
+      <label class="text-xs text-slate-500 mb-1 block">지금 화면의 품목을 템플릿으로 저장</label>
+      <div class="flex gap-2">
+        <input id="tpl-name" type="text" placeholder="예) 2평형 냉동창고 기본"
+               class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+        <button onclick="guard(this, saveTemplate)" class="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap">저장</button>
+      </div>
+    </div>
+    <div class="border border-slate-200 rounded-lg max-h-64 overflow-y-auto">
+      <table class="w-full text-xs"><tbody id="tpl-tbody"></tbody></table>
+    </div>
+    <div class="flex justify-end mt-4">
+      <button onclick="closeTplModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">닫기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 const STATUS_LABEL = SALES_STATUS_LABEL;   // common.js — cancelled 포함
@@ -432,6 +456,9 @@ async function selectOrder(id) {
                   class="text-xs px-3 py-1.5 border rounded-lg hover:bg-slate-50 ${order.drawing_id ? 'border-blue-300 text-blue-700 bg-blue-50' : 'border-slate-200'}"
                   title="${order.drawing_id ? '연결된 도면을 이어서 엽니다' : '도면을 설계해 품목을 가져옵니다'}">
             ✏️ ${order.drawing_id ? '도면 열기' : '도면 연동'}</button>
+          <button onclick="guard(this, () => copyOrder(${order.id}))"
+                  class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50"
+                  title="같은 품목으로 새 견적을 만듭니다 (출고·입금은 가져오지 않습니다)">⧉ 복사</button>
           <a href="/print.html?id=${order.id}&type=quote" target="_blank"
              class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">🖨 견적서</a>
           <a href="/print.html?id=${order.id}&type=statement" target="_blank"
@@ -616,6 +643,8 @@ function renderItemsTab(tc) {
       ${!isDone ? `<div class="flex gap-2">
         <button onclick="openCatalogModal()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50"
                 title="등록된 품목에서 골라 넣습니다">📦 카탈로그</button>
+        <button onclick="openTplModal()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50"
+                title="자주 쓰는 품목 묶음을 저장하고 불러옵니다">📑 템플릿</button>
         <button onclick="addItemRow()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50">+ 행 추가</button>
         <button onclick="guard(this, saveItems)" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
       </div>` : ''}
@@ -820,6 +849,72 @@ function insertFromCatalog() {
   closeCatalogModal();
   renderTab('items');
   toast(`${ids.length}건을 넣었습니다.`);
+}
+
+/** 이 견적을 그대로 한 건 더. 새 번호·오늘 날짜·견적 상태로 시작한다. */
+async function copyOrder(id) {
+  const src = orders.find(o => o.id === id);
+  if (!confirm(`"${src?.no || id}" 을 복사해 새 견적을 만듭니다.\n` +
+               `품목·거래처·메모는 가져오고, 출고·입금 기록은 가져오지 않습니다.\n\n계속할까요?`)) return;
+  const r = await tryApi(() => api.post(`/api/quotations/${id}/copy`, {}));
+  if (!r) return;
+  orders = await api.get('/api/quotations');
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(r.id);
+  toast(`${r.no} 로 복사했습니다.`);
+}
+
+// ─── 품목 템플릿 ─────────────────────────────────────────────
+let templates = [];
+
+async function openTplModal() {
+  document.getElementById('tpl-name').value = '';
+  document.getElementById('tpl-modal').classList.remove('hidden');
+  await reloadTemplates();
+}
+function closeTplModal() { document.getElementById('tpl-modal').classList.add('hidden'); }
+
+async function reloadTemplates() {
+  try { templates = await api.get('/api/item_templates'); } catch { return; }
+  document.getElementById('tpl-tbody').innerHTML = templates.length ? templates.map(t => `
+    <tr class="border-b border-slate-50 last:border-0">
+      <td class="p-2">
+        <div class="font-medium">${esc(t.name)}</div>
+        <div class="text-slate-400 text-[11px]">${t.items.length}개 품목${t.created_by ? ' · ' + esc(t.created_by) : ''}</div>
+      </td>
+      <td class="p-2 text-right whitespace-nowrap">
+        <button onclick="applyTemplate(${t.id})" class="px-2 py-1 border border-slate-200 rounded hover:bg-slate-50">불러오기</button>
+        <button onclick="guard(this, () => deleteTemplate(${t.id}))" class="px-2 py-1 text-slate-300 hover:text-red-500">삭제</button>
+      </td>
+    </tr>`).join('')
+    : `<tr><td class="p-6 text-center text-slate-400">저장된 템플릿이 없습니다.</td></tr>`;
+}
+
+async function saveTemplate() {
+  const name = document.getElementById('tpl-name').value.trim();
+  if (!name) return toast('템플릿 이름을 입력하세요.', 'error');
+  if (!curItems.length) return toast('저장할 품목이 없습니다.', 'error');
+  if (!await tryApi(() => api.post('/api/item_templates', { name, items: curItems }), '템플릿을 저장했습니다.')) return;
+  document.getElementById('tpl-name').value = '';
+  await reloadTemplates();
+}
+
+function applyTemplate(id) {
+  const t = templates.find(x => x.id === id);
+  if (!t) return;
+  // 기존 행을 지우지 않는다. 템플릿은 보태는 것이지 갈아끼우는 게 아니다.
+  t.items.forEach(it => curItems.push({ ...it, shipped_qty: 0 }));
+  closeTplModal();
+  renderTab('items');
+  toast(`"${t.name}" 에서 ${t.items.length}개를 넣었습니다. 저장을 눌러야 반영됩니다.`);
+}
+
+async function deleteTemplate(id) {
+  const t = templates.find(x => x.id === id);
+  if (!confirm(`템플릿 "${t?.name || ''}" 을 삭제할까요?`)) return;
+  if (!await tryApi(() => api.del(`/api/item_templates/${id}`), '삭제했습니다.')) return;
+  await reloadTemplates();
 }
 
 /* 저장한 품목 중 카탈로그에 없는 것을 되돌려 등록한다.

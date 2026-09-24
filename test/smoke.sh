@@ -508,6 +508,63 @@ code -X DELETE "$BASE/api/products/$CATID2" >/dev/null
 check "  힌트 테스트 정리됨"      0 \
       "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.customer==='ZZHINT').length")"
 
+# ── 템플릿 · 복사 ───────────────────────────────────────────
+echo
+echo "[템플릿]"
+check "이름 없는 템플릿 -> 400"   400 \
+      "$(code -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' -d '{"items":[{"name":"A"}]}')"
+check "품목 없는 템플릿 -> 400"   400 \
+      "$(code -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' -d '{"name":"ZZTPL","items":[]}')"
+check "품목명이 다 빈 템플릿 -> 400" 400 \
+      "$(code -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' -d '{"name":"ZZTPL","items":[{"name":"  "}]}')"
+TPL='{"name":"ZZTPL","items":[{"name":"ZZTA","spec":"S1","unit":"EA","qty":2,"unit_price":1000,"tax_free":1},
+                              {"name":"ZZTB","spec":"","unit":"EA","qty":1,"unit_price":2000}]}'
+check "템플릿 저장 -> 200"        200 \
+      "$(code -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' -d "$TPL")"
+check "  같은 이름은 409"         409 \
+      "$(code -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' -d "$TPL")"
+check "  품목이 배열로 돌아옴"    2 \
+      "$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).find(t=>t.name==='ZZTPL').items.length")"
+check "★ 면세 구분이 살아남음"    1 \
+      "$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).find(t=>t.name==='ZZTPL').items[0].tax_free")"
+check "  만든 사람이 기록됨"      "true" \
+      "$(body "$BASE/api/item_templates" | jsonq "String(JSON.parse(s).find(t=>t.name==='ZZTPL').created_by.length>0)")"
+TPLID=$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).find(t=>t.name==='ZZTPL').id")
+check "템플릿 삭제 -> 200"        200 "$(code -X DELETE "$BASE/api/item_templates/$TPLID")"
+check "  목록에서 사라짐"         0 \
+      "$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).filter(t=>t.name==='ZZTPL').length")"
+
+echo
+echo "[견적 복사]"
+COID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+       -d '{"customer":"ZZCOPYSRC","site_name":"ZZSITE"}' | jsonq 'JSON.parse(s).id')
+body -X PUT "$BASE/api/order_items/order/$COID" -H 'Content-Type: application/json' \
+     -d '[{"name":"ZZCA","spec":"S","unit":"EA","qty":2,"unit_price":5000,"note":"ZZN","tax_free":1},
+          {"name":"ZZCB","spec":"","unit":"EA","qty":1,"unit_price":3000}]' >/dev/null
+body -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \
+     -d "{\"order_id\":$COID,\"amount\":1000,\"paid_at\":\"2026-01-01\"}" >/dev/null
+SRCTOTAL=$(body "$BASE/api/quotations/$COID" | jsonq 'JSON.parse(s).total')
+NEWID=$(body -X POST "$BASE/api/quotations/$COID/copy" -H 'Content-Type: application/json' -d '{}' | jsonq 'JSON.parse(s).id')
+check "복사본이 만들어짐"         "true" "$([ -n "$NEWID" ] && [ "$NEWID" != "undefined" ] && echo true || echo false)"
+check "★ 합계가 같음"             "$SRCTOTAL" "$(body "$BASE/api/quotations/$NEWID" | jsonq 'JSON.parse(s).total')"
+check "★ 입금은 안 따라옴"        0 "$(body "$BASE/api/quotations/$NEWID" | jsonq 'JSON.parse(s).total_paid')"
+check "★ 상태는 견적부터"         "draft" "$(body "$BASE/api/quotations/$NEWID" | jsonq 'JSON.parse(s).order_status')"
+check "  번호는 새로 매겨짐"      "false" \
+      "$(body "$BASE/api/quotations/$NEWID" | jsonq "String(JSON.parse(s).no === '$(body "$BASE/api/quotations/$COID" | jsonq 'JSON.parse(s).no')')")"
+check "  현장명을 승계"           "ZZSITE" "$(body "$BASE/api/quotations/$NEWID" | jsonq 'JSON.parse(s).site_name')"
+check "  품목 2건"                2 "$(body "$BASE/api/order_items/order/$NEWID" | jsonq 'JSON.parse(s).length')"
+check "★ 출고 수량은 0 부터"      0 \
+      "$(body "$BASE/api/order_items/order/$NEWID" | jsonq 'JSON.parse(s).reduce((a,b)=>a+(b.shipped_qty||0),0)')"
+check "  비고·면세 승계"          "ZZN|1" \
+      "$(body "$BASE/api/order_items/order/$NEWID" | jsonq "JSON.parse(s)[0].note+'|'+JSON.parse(s)[0].tax_free")"
+check "  출처가 기록됨"           "$COID" \
+      "$(body "$BASE/api/quotations/$NEWID/history" | jsonq "String((JSON.parse(s).sources||[])[0]?.source_quotation_id||'')")"
+check "없는 건 복사 -> 404"       404 "$(code -X POST "$BASE/api/quotations/999999/copy" -H 'Content-Type: application/json' -d '{}')"
+code -X DELETE "$BASE/api/quotations/$NEWID" >/dev/null
+code -X DELETE "$BASE/api/quotations/$COID" >/dev/null
+check "  복사 테스트 정리됨"      0 \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.customer==='ZZCOPYSRC').length")"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"
