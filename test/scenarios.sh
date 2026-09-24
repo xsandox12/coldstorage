@@ -378,6 +378,107 @@ check "★ 퇴사 처리 시 기존 세션 즉시 무효" 401 \
 rm -f "$SCK"
 
 echo
+echo "════ S9. 견적 한 건을 화면을 떠나지 않고 만든다 ════"
+echo "[미등록 고객 → 즉석 등록 → 도면 BOM(단가 자동) → 카탈로그 → 템플릿 → 복사 → 할인 → 인쇄]"
+
+# ── 지난 거래를 하나 만들어 둔다. 단가 힌트의 근거는 이것뿐이다.
+PASTID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+         -d "{\"date\":\"2026-01-05\",\"customer\":\"$TAG-PAST\"}" | jsonq 'JSON.parse(s).id')
+ALL_IDS="$ALL_IDS $PASTID"
+body -X PUT "$BASE/api/order_items/order/$PASTID" -H 'Content-Type: application/json' \
+     -d "[{\"name\":\"$TAG PANEL (WALL/100T)\",\"spec\":\"2400*1000\",\"unit\":\"EA\",\"qty\":5,\"unit_price\":88000}]" >/dev/null
+
+# ── 1단계. 고객이 등록돼 있지 않다. 화면을 떠나지 않고 만든다.
+NEWCO="$TAG-NEWCO"
+CREATED=$(body -X POST "$BASE/api/customers" -H 'Content-Type: application/json' \
+          -d "{\"name\":\"$NEWCO\",\"rep\":\"kim\",\"business_no\":\"111-22-33333\",\"phone\":\"031-000-0000\"}")
+NEWCID=$(echo "$CREATED" | jsonq 'JSON.parse(s).id')
+check "★ 미등록 상호를 즉석 등록"  "true" \
+      "$(echo "$CREATED" | jsonq 'String(JSON.parse(s).ok===true && /^CUST-/.test(JSON.parse(s).id))')"
+check "  같은 상호를 또 보내면 기존 건" "$NEWCID" \
+      "$(body -X POST "$BASE/api/customers" -H 'Content-Type: application/json' \
+         -d "{\"name\":\"$NEWCO\"}" | jsonq 'JSON.parse(s).id')"
+
+# ── 2단계. 견적을 연다. 유효기간은 설정에서 자동으로 잡힌다.
+Q9=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+     -d "{\"customer_id\":\"$NEWCID\",\"site_name\":\"$TAG SITE\"}")
+QID=$(echo "$Q9" | jsonq 'JSON.parse(s).id')
+ALL_IDS="$ALL_IDS $QID"
+check "고객이 견적에 연결됨"       "$NEWCID" "$(body "$BASE/api/quotations/$QID" | jsonq 'JSON.parse(s).customer_id')"
+check "★ 유효기간이 설정대로 자동" "true" \
+      "$(body "$BASE/api/quotations/$QID" | jsonq 'String(/^\d{4}-\d{2}-\d{2}$/.test(JSON.parse(s).valid_until))')"
+
+# ── 3단계. 도면에서 온 품목. 단가는 지난 거래에서 찾아 채운다.
+check "★ 도면 품목의 단가를 이력에서 찾음" 88000 \
+      "$(body "$BASE/api/price-hint?name=$(printf %s "$TAG PANEL WALL/100T" | sed 's/ /%20/g')&spec=2400%20*%201000" \
+         | jsonq 'JSON.parse(s).price')"
+body -X PUT "$BASE/api/order_items/order/$QID" -H 'Content-Type: application/json' \
+     -d "[{\"name\":\"$TAG PANEL (WALL/100T)\",\"spec\":\"2400*1000\",\"unit\":\"EA\",\"qty\":10,\"unit_price\":88000},
+          {\"name\":\"$TAG DOOR\",\"spec\":\"1200*2000\",\"unit\":\"EA\",\"qty\":1,\"unit_price\":850000,\"note\":\"$TAG NOTE\"}]" >/dev/null
+check "품목 2건"                   2 "$(body "$BASE/api/order_items/order/$QID" | jsonq 'JSON.parse(s).length')"
+check "  비고가 살아 있음"         "$TAG NOTE" \
+      "$(body "$BASE/api/order_items/order/$QID" | jsonq 'JSON.parse(s)[1].note')"
+
+# ── 4단계. 카탈로그 역등록. 카탈로그가 비어 있어도 쓸수록 채워진다.
+body -X POST "$BASE/api/products/bulk" -H 'Content-Type: application/json' \
+     -d "[{\"name\":\"$TAG DOOR\",\"spec\":\"1200*2000\",\"unit\":\"EA\",\"unit_price\":850000}]" >/dev/null
+check "★ 견적 품목이 카탈로그로"   1 \
+      "$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name==='$TAG DOOR').length")"
+CAT9=$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name==='$TAG DOOR').map(p=>p.id).join('')")
+
+# ── 5단계. 템플릿으로 저장하고 다음 견적에서 불러온다.
+body -X POST "$BASE/api/item_templates" -H 'Content-Type: application/json' \
+     -d "{\"name\":\"$TAG TPL\",\"items\":[{\"name\":\"$TAG DOOR\",\"spec\":\"1200*2000\",\"unit\":\"EA\",\"qty\":1,\"unit_price\":850000}]}" >/dev/null
+check "템플릿이 저장됨"            1 \
+      "$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).filter(t=>t.name==='$TAG TPL').length")"
+TPL9=$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).filter(t=>t.name==='$TAG TPL').map(t=>t.id).join('')")
+
+# ── 6단계. 할인. 과세표준에서만 빠진다.
+BEFORE9=$(body "$BASE/api/quotations/$QID" | jsonq 'JSON.parse(s).total')
+code -X PATCH "$BASE/api/quotations/$QID/tax" -H 'Content-Type: application/json' -d '{"discount":80000}' >/dev/null
+check "★ 할인이 합계에 반영"       "true" \
+      "$(body "$BASE/api/quotations/$QID" | jsonq "String(JSON.parse(s).total === $BEFORE9 - 88000)")"
+
+# ── 7단계. 조건을 적고 인쇄 데이터를 확인한다.
+code -X PATCH "$BASE/api/quotations/$QID/memo" -H 'Content-Type: application/json' \
+     -d "{\"delivery_terms\":\"$TAG 3WEEKS\",\"payment_terms\":\"$TAG 30-70\"}" >/dev/null
+check "★ 인쇄에 공급받는자 사업자번호" "111-22-33333" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq 'JSON.parse(s).order.cust_business_no')"
+check "  인쇄에 연락처"            "031-000-0000" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq 'JSON.parse(s).order.cust_phone')"
+check "  인쇄에 현장명"            "$TAG SITE" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq 'JSON.parse(s).order.site_name')"
+check "  인쇄에 납기·결제조건"     "$TAG 3WEEKS|$TAG 30-70" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq "JSON.parse(s).order.delivery_terms+'|'+JSON.parse(s).order.payment_terms")"
+check "★ 인쇄가 설정 유효기간을 받음" "true" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq 'String(Number(JSON.parse(s).quotation.validity_days) > 0)')"
+check "  입금계좌가 한 줄로 옴"    "true" \
+      "$(body "$BASE/api/print/quotations/$QID" | jsonq 'String((JSON.parse(s).company.bank_info||"").length > 0)')"
+
+# ── 8단계. 계약금까지 받은 건을 다음 공사에 그대로 한 건 더.
+body -X POST "$BASE/api/payments" -H 'Content-Type: application/json' \n     -d "{\"order_id\":$QID,\"amount\":300000,\"paid_at\":\"2026-02-01\"}" >/dev/null
+check "  원본에 계약금이 있다" 300000 "$(body "$BASE/api/quotations/$QID" | jsonq 'JSON.parse(s).total_paid')"
+COPY9=$(body -X POST "$BASE/api/quotations/$QID/copy" -H 'Content-Type: application/json' -d '{}')
+CID9=$(echo "$COPY9" | jsonq 'JSON.parse(s).id')
+ALL_IDS="$ALL_IDS $CID9"
+check "★ 복사본 합계가 같음"       "$(body "$BASE/api/quotations/$QID" | jsonq 'JSON.parse(s).total')" \
+      "$(body "$BASE/api/quotations/$CID9" | jsonq 'JSON.parse(s).total')"
+check "★ 입금은 따라오지 않음" 0 "$(body "$BASE/api/quotations/$CID9" | jsonq 'JSON.parse(s).total_paid')"
+check "  할인도 승계"              80000 "$(body "$BASE/api/quotations/$CID9" | jsonq 'JSON.parse(s).discount')"
+check "  도면 연결은 승계하지 않음" "" "$(body "$BASE/api/quotations/$CID9" | jsonq 'JSON.parse(s).drawing_id||""')"
+check "★ 유효기간은 오늘 기준으로 다시" "false" \
+      "$(body "$BASE/api/quotations/$CID9" | jsonq "String(JSON.parse(s).valid_until === '')")"
+
+code -X DELETE "$BASE/api/item_templates/$TPL9" >/dev/null
+code -X DELETE "$BASE/api/products/$CAT9" >/dev/null
+code -X DELETE "$BASE/api/customers/$NEWCID" >/dev/null
+check "S9 정리 — 템플릿"           0 \
+      "$(body "$BASE/api/item_templates" | jsonq "JSON.parse(s).filter(t=>t.name==='$TAG TPL').length")"
+check "S9 정리 — 카탈로그"         0 \
+      "$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name.indexOf('$TAG')===0).length")"
+
+
+echo
 echo "════ 정리 ════"
 for ID in $ALL_IDS; do code -X DELETE "$BASE/api/quotations/$ID" >/dev/null; done
 code -X DELETE "$BASE/api/purchases/$PID" >/dev/null
