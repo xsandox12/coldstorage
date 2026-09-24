@@ -189,6 +189,7 @@ function render() {
           <tr><th>사업자번호</th><td>${esc(order.cust_business_no || '')}</td></tr>
           <tr><th>연락처</th><td>${esc(order.cust_phone || '')}</td></tr>
           <tr><th>주소</th><td>${esc(addr)}</td></tr>
+          ${order.site_name ? `<tr><th>현장명</th><td>${esc(order.site_name)}</td></tr>` : ''}
         </table>
       </div>
       <div class="party">

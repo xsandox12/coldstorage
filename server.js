@@ -215,6 +215,13 @@ for (const sql of [
   `ALTER TABLE purchases ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN created_by TEXT DEFAULT ''`,
   `ALTER TABLE as_records ADD COLUMN assignee_id INTEGER`,
+  /* 견적 문서용 항목. 지금까지 현장명·납기·결제조건은 자유 메모에 섞여 들어가
+   * 문서에 정형으로 찍히지 않았고, 유효기간은 인쇄 화면에 30일로 박혀 있었다. */
+  `ALTER TABLE quotations ADD COLUMN site_name TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN valid_until TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN delivery_terms TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN payment_terms TEXT DEFAULT ''`,
+  `ALTER TABLE quotations ADD COLUMN discount INTEGER DEFAULT 0`,
   // 구매 취소 — 판매와 대칭. 해제 시 돌아갈 상태를 직접 들고 있는다
   // (판매는 status_changes 에서 읽지만 구매에는 이력 테이블이 없다)
   `ALTER TABLE purchases ADD COLUMN cancelled_at TEXT DEFAULT ''`,
@@ -283,10 +290,37 @@ db.exec(`
      AND rtrim(rtrim(id, '0'), '.') NOT IN (SELECT id FROM drawings);
 `);
 
+/* 거래처 id 는 지금까지 화면에서 Date.now() 로 만들었다. 서버가 매기면 번호가
+ * 이어져 읽기 쉽고, 마이그레이션처럼 한 번에 여러 건을 만들 때도 겹치지 않는다. */
+function nextCustomerId() {
+  const row = db.prepare(`SELECT MAX(CAST(substr(id, 6) AS INTEGER)) AS m FROM customers WHERE id LIKE 'CUST-%'`).get();
+  return 'CUST-' + String((row?.m || 0) + 1).padStart(4, '0');
+}
+
+/* 상호 비교용 정규화 — "주식회사 명일", "(주)명일", "명일" 을 같게 본다.
+ * 자동으로 합치지는 않는다. 사람이 판단할 일이라 알려주기만 한다. */
+const normName = s => String(s || '')
+  .replace(/주식회사|\(주\)|㈜|\(유\)|유한회사/g, '')
+  .replace(/\s+/g, '')
+  .toLowerCase();
+
+/** 정규화하면 같아지는 거래처 묶음 (2곳 이상인 것만) */
+function similarGroups() {
+  const by = new Map();
+  for (const c of db.prepare('SELECT id,name FROM customers').all()) {
+    const k = normName(c.name);
+    if (!k) continue;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(c.name);
+  }
+  return [...by.values()].filter(g => g.length > 1);
+}
+
 /* 일회성 데이터 마이그레이션. ALTER 는 재적용해도 안전하지만 값 채우기는 아니다
  * — 두 번 돌면 사용자가 바꿔 둔 과세구분을 덮어쓴다. user_version 으로 한 번만. */
-const SCHEMA_VERSION = 1;
-if ((db.pragma('user_version', { simple: true }) || 0) < 1) {
+const SCHEMA_VERSION = 2;
+const schemaVer = db.pragma('user_version', { simple: true }) || 0;
+if (schemaVer < 1) {
   db.transaction(() => {
     // 기존 행 금액을 정수로 확정
     for (const t of ['order_items', 'purchase_items']) {
@@ -306,9 +340,40 @@ if ((db.pragma('user_version', { simple: true }) || 0) < 1) {
                WHERE total > 0 AND supply_amount = 0 AND vat_amount = 0 AND exempt_amount = 0`);
     }
   })();
-  db.pragma(`user_version = ${SCHEMA_VERSION}`);
   console.log('부가세 컬럼 마이그레이션 완료 (기존 금액은 세포함으로 보존).');
 }
+
+/* v2 — 판매의 customer 텍스트를 실제 거래처로 승격한다.
+ * 지금까지 고객 선택이 화면을 떠나야 하는 일이라 아무도 등록하지 않았고, 그 결과
+ * 견적서 공급받는자 칸의 사업자번호·연락처·주소가 전 건에서 빈칸으로 나갔다.
+ * 상호만 채운 거래처를 만들어 연결한다 — 나머지는 쓰면서 채워 넣으면 된다.
+ * 금액은 건드리지 않는다. */
+if (schemaVer < 2) {
+  const made = [], linked = [];
+  db.transaction(() => {
+    const rows = db.prepare(`SELECT DISTINCT customer FROM quotations
+                             WHERE IFNULL(customer,'') != '' AND IFNULL(customer_id,'') = ''`).all();
+    for (const { customer } of rows) {
+      let c = db.prepare('SELECT id FROM customers WHERE name = ?').get(customer);
+      if (!c) {
+        const id = nextCustomerId();
+        db.prepare('INSERT INTO customers (id,name) VALUES (?,?)').run(id, customer);
+        c = { id };
+        made.push(`${customer}(${id})`);
+      }
+      const n = db.prepare(`UPDATE quotations SET customer_id = ?
+                            WHERE customer = ? AND IFNULL(customer_id,'') = ''`).run(c.id, customer).changes;
+      linked.push(n);
+    }
+  })();
+  if (made.length || linked.length) {
+    console.log(`거래처 연결: 신규 ${made.length}곳 / 판매 ${linked.reduce((a,b)=>a+b,0)}건`);
+    // 상호 표기만 다른 같은 회사가 따로 등록됐을 수 있다 — 지우지 않고 알리기만 한다
+    const dup = similarGroups();
+    if (dup.length) console.log('  상호가 비슷한 거래처가 있습니다(확인 필요):', dup.map(g => g.join(' / ')).join(' | '));
+  }
+}
+db.pragma(`user_version = ${SCHEMA_VERSION}`);
 
 // JSON → SQLite 최초 마이그레이션
 (function migrate() {
@@ -626,15 +691,22 @@ function recalcTotal(cfg, parentId) {
       COALESCE(SUM(CASE WHEN tax_free=1 THEN amount ELSE 0 END),0) AS exempt
     FROM ${cfg.items} WHERE ${cfg.parentCol}=?`).get(parentId);
 
+  /* 할인은 문서 단위로 과세표준에서만 뺀다. 행마다 배분하면 세금계산서와
+   * 거래명세서가 어긋난다. 면세분은 건드리지 않고, 과세분보다 크게는 못 깎는다. */
+  const discount = columnsOf(cfg.parent).has('discount')
+    ? Math.min(Math.max(0, db.prepare(`SELECT discount FROM ${cfg.parent} WHERE id=?`).get(parentId)?.discount || 0), r.taxable)
+    : 0;
+  const taxable = r.taxable - discount;
+
   let supply, vat, total;
   if (inclusive) {
     // 입력 단가가 세포함. 공급가액을 역산하고 부가세는 반드시 차액으로 —
     // 따로 구하면 supply + vat != 입력합계 가 되어 1원씩 깨진다.
-    supply = Math.round(r.taxable / (1 + vatRate));
-    vat    = r.taxable - supply;
-    total  = r.taxable + r.exempt;
+    supply = Math.round(taxable / (1 + vatRate));
+    vat    = taxable - supply;
+    total  = taxable + r.exempt;
   } else {
-    supply = r.taxable;
+    supply = taxable;
     vat    = Math.floor(supply * vatRate);
     total  = supply + r.exempt + vat;
   }
@@ -779,6 +851,16 @@ function settingsBlob() {
   catch { return {}; }
 }
 const companyName = () => settingsBlob().company?.name || '';
+
+/** 견적 유효기한. settings.quotation.validity_days 를 쓴다 (기본 15일). */
+function defaultValidUntil(fromDate) {
+  const days = Number(settingsBlob().quotation?.validity_days);
+  if (!Number.isFinite(days) || days <= 0) return '';
+  const d = new Date(`${fromDate}T00:00:00`);
+  if (isNaN(d)) return '';
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
 function recordStatusChange(orderId, fromStatus, toStatus, reason, user) {
   // user_name 을 함께 박아둔다 — 계정을 지워도 이력에 누가 했는지는 남아야 한다
@@ -1399,13 +1481,21 @@ async function handle(req, res) {
         return json(res, 400, { ok:false, error:'세율은 0 이상 1 이하여야 합니다. (10% = 0.1)' });
       }
     }
+    let disc;
+    if (body?.discount !== undefined) {
+      disc = Math.round(Number(body.discount));
+      if (!Number.isFinite(disc) || disc < 0) return json(res, 400, { ok:false, error:'할인 금액은 0 이상이어야 합니다.' });
+      if (!columnsOf(cfg.parent).has('discount')) return json(res, 400, { ok:false, error:'이 문서는 할인을 지원하지 않습니다.' });
+    }
     db.transaction(() => {
       if (mode !== undefined) db.prepare(`UPDATE ${cfg.parent} SET vat_mode=? WHERE id=?`).run(mode, id);
       if (rate !== undefined) db.prepare(`UPDATE ${cfg.parent} SET vat_rate=? WHERE id=?`).run(rate, id);
+      if (disc !== undefined) db.prepare(`UPDATE ${cfg.parent} SET discount=? WHERE id=?`).run(disc, id);
       recalcTotal(cfg, id);
     })();
-    return json(res, 200, { ok:true,
-      ...db.prepare(`SELECT total,supply_amount,vat_amount,exempt_amount,vat_mode,vat_rate FROM ${cfg.parent} WHERE id=?`).get(id) });
+    const cols = 'total,supply_amount,vat_amount,exempt_amount,vat_mode,vat_rate'
+               + (columnsOf(cfg.parent).has('discount') ? ',discount' : '');
+    return json(res, 200, { ok:true, ...db.prepare(`SELECT ${cols} FROM ${cfg.parent} WHERE id=?`).get(id) });
   }
 
   // ── PATCH /api/quotations/:id/drawing — 연결된 도면 기록 ─────
@@ -1426,12 +1516,39 @@ async function handle(req, res) {
     const id   = parseInt(mQMemo[1]);
     const body = await parseBody(req);
     if (!body) return json(res, 400, { ok:false });
+    // 문서에 붙는 텍스트 항목들. 금액에 영향을 주는 discount 는 /tax 에서 다룬다.
+    const FIELDS = ['memo_customer','memo_internal','site_name','valid_until','delivery_terms','payment_terms'];
     const sets = [], vals = [];
-    if (body.memo_customer !== undefined) { sets.push('memo_customer=?'); vals.push(body.memo_customer); }
-    if (body.memo_internal !== undefined) { sets.push('memo_internal=?'); vals.push(body.memo_internal); }
+    for (const f of FIELDS) {
+      if (body[f] !== undefined) { sets.push(`${f}=?`); vals.push(String(body[f])); }
+    }
     if (!sets.length) return json(res, 400, { ok:false, error:'변경할 필드 없음' });
     db.prepare(`UPDATE quotations SET ${sets.join(',')} WHERE id=?`).run(...vals, id);
     return json(res, 200, { ok:true });
+  }
+
+  // ── POST /api/customers ──────────────────────────────────────
+  // 견적을 쓰다 말고 고객 화면으로 넘어가지 않도록, 상호 하나만 있으면 만들어 준다.
+  // 상호가 비슷한 거래처가 이미 있으면 알려주되 막지는 않는다 — 같은 회사인지
+  // 아닌지는 사람이 판단할 일이다.
+  if (pathname === '/api/customers' && method === 'POST') {
+    const body = await parseBody(req);
+    const name = String(body?.name || '').trim();
+    if (!name) return json(res, 400, { ok:false, error:'상호를 입력하세요.' });
+
+    const key = normName(name);
+    const similar = db.prepare('SELECT id,name FROM customers').all()
+                      .filter(c => normName(c.name) === key && c.name !== name);
+    const exact = db.prepare('SELECT id,name FROM customers WHERE name = ?').get(name);
+    if (exact) return json(res, 200, { ok:true, existing:true, ...exact });
+
+    const id = body.id || nextCustomerId();
+    db.prepare(`INSERT INTO customers (id,name,rep,business_no,phone,email,address_base,address_detail,address_post,status,price_group)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      id, name, body.rep||'', body.business_no||'', body.phone||'', body.email||'',
+      body.address_base||'', body.address_detail||'', body.address_post||'',
+      body.status||'NORMAL', body.price_group||'A');
+    return json(res, 200, { ok:true, id, name, similar });
   }
 
   // ── POST /api/quotations ─────────────────────────────────────
@@ -1443,11 +1560,13 @@ async function handle(req, res) {
     if (body.no && db.prepare('SELECT 1 FROM quotations WHERE no=?').get(body.no))
       return json(res, 409, { ok:false, error:'이미 있는 판매번호입니다.' });
     const cust = db.prepare('SELECT * FROM customers WHERE id=?').get(body.customer_id||'');
-    const r = db.prepare(`INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status,created_by)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
-      body.no || nextOrderNo(), body.date || today(), body.customer_id||'',
+    const date = body.date || today();
+    const r = db.prepare(`INSERT INTO quotations (no,date,customer_id,customer,order_status,total,total_paid,items,ref,status,created_by,site_name,valid_until)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      body.no || nextOrderNo(), date, body.customer_id||'',
       cust?.name || body.customer || '', 'draft', 0, 0, body.memo || body.items || '',
-      companyName(), '진행중', req.user.name || req.user.username
+      companyName(), '진행중', req.user.name || req.user.username,
+      body.site_name || '', body.valid_until || defaultValidUntil(date)
     );
     return json(res, 200, { ok:true, ...getOne(TABLES.quotations, r.lastInsertRowid) });
   }

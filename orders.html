@@ -125,10 +125,13 @@
     <div id="new-panel-plain">
       <div class="flex flex-col gap-3">
         <div>
-          <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
-          <select id="new-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-            <option value="">-- 고객 선택 --</option>
-          </select>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">거래처</label>
+          <!-- 목록에 없으면 여기서 바로 등록한다 (customerPicker) -->
+          <div id="new-cust"></div>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">현장명 (선택)</label>
+          <input id="new-site" type="text" placeholder="같은 거래처의 다른 현장을 구분합니다" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -154,10 +157,8 @@
     <div id="new-panel-compose" class="hidden">
       <div class="flex flex-col gap-3 mb-4">
         <div>
-          <label class="text-xs font-medium text-slate-500 mb-1 block">고객 선택</label>
-          <select id="compose-cust" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-            <option value="">-- 고객 선택 --</option>
-          </select>
+          <label class="text-xs font-medium text-slate-500 mb-1 block">거래처</label>
+          <div id="compose-cust"></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -282,13 +283,8 @@ async function init() {
   // const today = today() 로 자기 자신을 가려 TDZ 오류가 났고, 그 뒤 두 줄이
   // 실행되지 않아 새 판매 모달의 날짜가 비어 있었다.
   const d = today();
-  // 고객 선택 옵션 — init() 이 다시 불려도 옵션이 쌓이지 않도록 매번 새로 채운다
-  ['new-cust','compose-cust'].forEach(selId => {
-    const sel = document.getElementById(selId);
-    if (!sel) return;
-    sel.innerHTML = '<option value="">-- 고객 선택 --</option>';
-    customers.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
-  });
+  // 거래처 칸 — 목록에 없으면 그 자리에서 등록할 수 있는 픽커를 쓴다
+  ['new-cust','compose-cust'].forEach(id => customerPicker.mount(id, { customers }));
   document.getElementById('new-date').value = d;
   document.getElementById('compose-date').value = d;
 }
@@ -383,6 +379,7 @@ async function selectOrder(id) {
             <span class="status-badge ${STATUS_CLS[order.order_status]||'s-draft'}">${STATUS_LABEL[order.order_status]||order.order_status}</span>
           </div>
           <div class="text-xs text-slate-400">${esc(order.no||'#'+order.id)} · ${esc(order.date||'')} · ${esc(order.ref||'한남냉동테크(주)')}</div>
+          ${order.site_name ? `<div class="text-xs text-slate-500 mt-0.5">📍 ${esc(order.site_name)}</div>` : ''}
           ${isCancelled && order.cancelled_reason ? `<div class="text-xs text-red-500 mt-0.5">취소 사유: ${esc(order.cancelled_reason)}</div>` : ''}
         </div>
         <div class="flex gap-2 flex-wrap justify-end">
@@ -890,6 +887,21 @@ function renderMemoTab(tc) {
     <div class="flex flex-col gap-5">
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold text-slate-700">문서 조건</span>
+          <span class="text-xs text-slate-400">견적서에 표시됩니다</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="text-xs text-slate-500">현장명
+            <input id="doc-site_name" value="${esc(order?.site_name||'')}" placeholder="예) 평택 물류센터 2층"
+                   class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </label>
+        </div>
+        <div class="flex justify-end mt-2">
+          <button onclick="guard(this, saveDocFields)" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-semibold text-slate-700">고객 메모</span>
           <span class="text-xs text-slate-400">견적서/주문서에 표시됩니다</span>
         </div>
@@ -910,6 +922,20 @@ function renderMemoTab(tc) {
       </div>
     </div>
   `;
+}
+
+/* 현장명처럼 문서에 정형으로 찍히는 항목. 메모와 달리 헤더에도 나오므로
+ * 저장 뒤 목록·상세를 다시 그린다. */
+const DOC_FIELDS = ['site_name'];
+async function saveDocFields() {
+  const body = {};
+  DOC_FIELDS.forEach(f => { body[f] = document.getElementById(`doc-${f}`).value.trim(); });
+  if (!await tryApi(() => api.patch(`/api/quotations/${curId}/memo`, body), '저장됐습니다.')) return;
+  const order = orders.find(o => o.id === curId);
+  if (order) Object.assign(order, body);
+  renderList();
+  await selectOrder(curId);
+  document.querySelector('.detail-tab[data-tab="memo"]')?.click();   // 머물던 탭으로 되돌린다
 }
 
 async function saveMemo(type) {
@@ -992,20 +1018,27 @@ function openNewModal() {
   // 모를 수 있어, 여기서 세면 같은 번호를 두 건에 붙이게 된다.
   document.getElementById('new-no').value = '';
   document.getElementById('compose-no').value = '';
+  document.getElementById('new-site').value = '';
+  ['new-cust','compose-cust'].forEach(id => customerPicker.reset(id));
   document.getElementById('new-modal').classList.remove('hidden');
   switchNewTab('plain');
 }
 function closeNewModal() { document.getElementById('new-modal').classList.add('hidden'); }
 
 async function createOrder() {
-  const custId = document.getElementById('new-cust').value;
-  const no     = document.getElementById('new-no').value;
-  const date   = document.getElementById('new-date').value;
-  const memo   = document.getElementById('new-memo').value;
-  if (!custId) return alert('고객을 선택하세요.');
+  const no   = document.getElementById('new-no').value;
+  const date = document.getElementById('new-date').value;
+  const memo = document.getElementById('new-memo').value;
+  const site = document.getElementById('new-site').value;
+  // 목록에 없는 상호면 여기서 거래처가 만들어진다 — 화면을 떠날 일이 없다
+  if (!customerPicker.value('new-cust').name) return toast('거래처를 입력하세요.', 'error');
+  const custId = await customerPicker.resolve('new-cust');
+  if (!custId) return;
+  customers = await api.get('/api/customers');
+  ['new-cust','compose-cust'].forEach(id => customerPicker.setList(id, customers));
   const cust = customers.find(c=>c.id===custId);
   // 번호가 비면 서버가 매긴다. 상태·총액·자사 정보도 서버가 정한다.
-  await api.post('/api/quotations', { no, date, customer_id: custId, customer: cust?.name||'', memo });
+  await api.post('/api/quotations', { no, date, customer_id: custId, customer: cust?.name||'', memo, site_name: site });
   closeNewModal();
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
@@ -1078,8 +1111,11 @@ function addComposeItem() {
 }
 
 async function createFromQuotations() {
-  const custId = document.getElementById('compose-cust').value;
-  if (!custId) return alert('고객을 선택하세요.');
+  if (!customerPicker.value('compose-cust').name) return toast('거래처를 입력하세요.', 'error');
+  const custId = await customerPicker.resolve('compose-cust');
+  if (!custId) return;
+  customers = await api.get('/api/customers');
+  ['new-cust','compose-cust'].forEach(id => customerPicker.setList(id, customers));
 
   const checkedItems = Array.from(document.querySelectorAll('.compose-item-check:checked'));
   const quoteMap = {};

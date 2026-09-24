@@ -170,3 +170,134 @@ function clearFilters() {
   for (const id of ['search','from','to']) { const el = document.getElementById(id); if (el) el.value = ''; }
   applyFilters();
 }
+
+/* ── 거래처 선택 ────────────────────────────────────────────────
+ * 지금까지 새 판매 모달의 고객 칸은 <select> 였다. 목록에 없으면 "고객을
+ * 선택하세요" 로 막혀 고객 화면으로 나갔다 와야 했고, 쓰던 내용은 날아갔다.
+ * 실측으로 판매 15건 전부 고객이 연결돼 있지 않았다 — 아무도 안 쓴 것이다.
+ *
+ * 여기서는 입력하면 걸러지는 목록을 띄우고, 없으면 그 자리에서 만든다.
+ *   customerPicker.mount('cust-box', { onPick })
+ *   await customerPicker.resolve('cust-box')   // 고른 id 또는 새로 만든 id
+ */
+const customerPicker = (() => {
+  const boxes = new Map();   // elId -> state
+
+  const row = (c, active) => `
+    <div class="cp-item px-3 py-2 text-sm cursor-pointer ${active ? 'bg-blue-50' : 'hover:bg-slate-50'}"
+         data-id="${esc(c.id)}">
+      ${esc(c.name)}${c.rep ? `<span class="text-xs text-slate-400"> · ${esc(c.rep)}</span>` : ''}
+      ${c.business_no ? `<span class="text-xs text-slate-300"> · ${esc(c.business_no)}</span>` : ''}
+    </div>`;
+
+  function render(st) {
+    const q = st.input.value.trim();
+    const hit = st.list.filter(c => !q || `${c.name} ${c.rep||''} ${c.business_no||''}`.toLowerCase().includes(q.toLowerCase()));
+    const exact = st.list.some(c => c.name === q);
+    st.drop.innerHTML =
+      hit.slice(0, 30).map(c => row(c, c.id === st.picked)).join('') +
+      (q && !exact ? `<div class="cp-new px-3 py-2 text-sm cursor-pointer bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-t border-emerald-100">
+           + "${esc(q)}" 새 거래처로 등록</div>` : '') +
+      (!hit.length && !q ? `<div class="px-3 py-2 text-sm text-slate-400">등록된 거래처가 없습니다. 상호를 입력하세요.</div>` : '');
+    st.drop.classList.remove('hidden');
+  }
+
+  function close(st) { st.drop.classList.add('hidden'); }
+
+  /** 새 거래처 입력칸 펼치기 */
+  function openNewFields(st, name) {
+    st.picked = null;
+    st.input.value = name;
+    st.extra.classList.remove('hidden');
+    st.extra.querySelector('.cp-rep').focus();
+    close(st);
+  }
+
+  return {
+    /** el 안에 픽커를 그린다. customers 목록은 mount 시점에 받는다. */
+    mount(elId, { customers = [], placeholder = '상호로 검색하거나 새로 입력' } = {}) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.innerHTML = `
+        <div class="relative">
+          <input class="cp-input w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                 placeholder="${esc(placeholder)}" autocomplete="off">
+          <div class="cp-drop hidden absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
+        </div>
+        <div class="cp-extra hidden grid grid-cols-3 gap-2 mt-2">
+          <input class="cp-rep border border-slate-200 rounded-lg px-2 py-1.5 text-xs" placeholder="대표자">
+          <input class="cp-bno border border-slate-200 rounded-lg px-2 py-1.5 text-xs" placeholder="사업자번호">
+          <input class="cp-phone border border-slate-200 rounded-lg px-2 py-1.5 text-xs" placeholder="전화">
+          <div class="col-span-3 text-xs text-emerald-600">새 거래처로 등록됩니다. 나머지 정보는 나중에 채워도 됩니다.</div>
+        </div>`;
+      const st = {
+        el,
+        input: el.querySelector('.cp-input'),
+        drop:  el.querySelector('.cp-drop'),
+        extra: el.querySelector('.cp-extra'),
+        list:  customers,
+        picked: null,
+      };
+      boxes.set(elId, st);
+
+      st.input.addEventListener('focus', () => render(st));
+      st.input.addEventListener('input', () => { st.picked = null; st.extra.classList.add('hidden'); render(st); });
+      st.drop.addEventListener('mousedown', e => {
+        const item = e.target.closest('.cp-item');
+        if (item) {
+          st.picked = item.dataset.id;
+          st.input.value = st.list.find(c => c.id === st.picked)?.name || '';
+          st.extra.classList.add('hidden');
+          close(st);
+          return;
+        }
+        if (e.target.closest('.cp-new')) openNewFields(st, st.input.value.trim());
+      });
+      // 바깥을 누르면 닫는다. blur 로 닫으면 목록 클릭이 먹지 않는다.
+      document.addEventListener('mousedown', e => { if (!el.contains(e.target)) close(st); });
+      return st;
+    },
+
+    /** 목록 갱신 (거래처를 새로 만든 뒤 등) */
+    setList(elId, customers) { const st = boxes.get(elId); if (st) st.list = customers; },
+
+    /** 현재 입력값 */
+    value(elId) {
+      const st = boxes.get(elId);
+      return st ? { id: st.picked, name: st.input.value.trim() } : { id: null, name: '' };
+    },
+
+    reset(elId) {
+      const st = boxes.get(elId);
+      if (!st) return;
+      st.picked = null; st.input.value = '';
+      st.extra.classList.add('hidden');
+      st.extra.querySelectorAll('input').forEach(i => i.value = '');
+      close(st);
+    },
+
+    /** 고른 거래처의 id 를 돌려준다. 새 상호면 그 자리에서 만들고 id 를 돌려준다.
+     *  상호가 비어 있으면 null (호출부가 안내한다). */
+    async resolve(elId) {
+      const st = boxes.get(elId);
+      if (!st) return null;
+      if (st.picked) return st.picked;
+      const name = st.input.value.trim();
+      if (!name) return null;
+      const same = st.list.find(c => c.name === name);
+      if (same) { st.picked = same.id; return same.id; }
+
+      const r = await api.post('/api/customers', {
+        name,
+        rep:         st.extra.querySelector('.cp-rep').value.trim(),
+        business_no: st.extra.querySelector('.cp-bno').value.trim(),
+        phone:       st.extra.querySelector('.cp-phone').value.trim(),
+      });
+      if (r?.similar?.length) {
+        toast(`상호가 비슷한 거래처가 있습니다: ${r.similar.map(c => c.name).join(', ')}`, 'error');
+      }
+      st.picked = r.id;
+      return r.id;
+    },
+  };
+})();
