@@ -639,6 +639,14 @@ function renderItemsTab(tc) {
             <option value="INCLUSIVE"${order?.vat_mode === 'INCLUSIVE' ? ' selected' : ''}>부가세 포함</option>
           </select>
         </label>
+        <label class="text-xs text-slate-500 flex items-center gap-1"
+               title="문서 단위 할인 — 과세표준에서만 빼고 면세분은 그대로 둡니다">
+          할인
+          <input id="doc-discount" type="number" min="0" value="${order?.discount || 0}" ${isDone ? 'disabled' : ''}
+                 style="width:90px;text-align:right"
+                 class="text-xs border border-slate-200 rounded px-2 py-1 disabled:bg-slate-50"
+                 onchange="guard(this, saveDiscount)">
+        </label>
       </div>
       ${!isDone ? `<div class="flex gap-2">
         <button onclick="openCatalogModal()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50"
@@ -687,6 +695,9 @@ function calcTotals(order) {
     const amt = Math.round((Number(it.qty)||0) * (Number(it.unit_price)||0));
     if (it.tax_free) exempt += amt; else taxable += amt;
   }
+  // 할인은 과세표준에서만 뺀다 (서버 recalcTotal 과 같은 규칙).
+  // 여기서 빼지 않으면 할인이 걸린 건마다 "저장하지 않은 변경" 이 계속 뜬다.
+  taxable = Math.max(0, taxable - (order?.discount || 0));
   let supply, vat;
   if (inclusive) { supply = Math.round(taxable / (1 + vatRate)); vat = taxable - supply; }
   else           { supply = taxable; vat = Math.floor(supply * vatRate); }
@@ -714,6 +725,17 @@ async function changeTaxMode(sel) {
                           '과세 방식을 변경했습니다.');
   sel.disabled = false;
   if (!ok) { sel.value = prev; return; }
+  orders = await api.get('/api/quotations');
+  orders.sort((a,b) => b.id - a.id);
+  renderList();
+  await selectOrder(curId);
+}
+
+/* 할인은 금액 캐시를 바꾸므로 /memo 가 아니라 /tax 로 보낸다.
+ * 서버가 과세표준에서만 빼고 부가세까지 다시 계산한다. */
+async function saveDiscount() {
+  const v = Math.max(0, parseInt(document.getElementById('doc-discount').value, 10) || 0);
+  if (!await tryApi(() => api.patch(`/api/quotations/${curId}/tax`, { discount: v }), '할인을 반영했습니다.')) return;
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();
@@ -1144,6 +1166,18 @@ function renderMemoTab(tc) {
             <input id="doc-site_name" value="${esc(order?.site_name||'')}" placeholder="예) 평택 물류센터 2층"
                    class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
           </label>
+          <label class="text-xs text-slate-500">유효기간
+            <input id="doc-valid_until" type="date" value="${esc(order?.valid_until||'')}"
+                   class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </label>
+          <label class="text-xs text-slate-500">납기
+            <input id="doc-delivery_terms" value="${esc(order?.delivery_terms||'')}" placeholder="예) 발주 후 3주"
+                   class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </label>
+          <label class="text-xs text-slate-500">결제조건
+            <input id="doc-payment_terms" value="${esc(order?.payment_terms||'')}" placeholder="예) 계약금 30% / 잔금 준공 후"
+                   class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+          </label>
         </div>
         <div class="flex justify-end mt-2">
           <button onclick="guard(this, saveDocFields)" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
@@ -1175,7 +1209,7 @@ function renderMemoTab(tc) {
 
 /* 현장명처럼 문서에 정형으로 찍히는 항목. 메모와 달리 헤더에도 나오므로
  * 저장 뒤 목록·상세를 다시 그린다. */
-const DOC_FIELDS = ['site_name'];
+const DOC_FIELDS = ['site_name','valid_until','delivery_terms','payment_terms'];
 async function saveDocFields() {
   const body = {};
   DOC_FIELDS.forEach(f => { body[f] = document.getElementById(`doc-${f}`).value.trim(); });

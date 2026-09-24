@@ -1149,6 +1149,8 @@ async function handle(req, res) {
                              WHERE s.order_id=? ORDER BY s.shipped_at, s.id`).all(id),
       payments: db.prepare('SELECT * FROM payments WHERE order_id=? ORDER BY paid_at,id').all(id),
       company: settings.company || {},
+      // 유효기간·기본 문구는 설정에 있는데 인쇄가 읽지 않아 "30일" 이 박혀 나갔다
+      quotation: settings.quotation || {},
     });
   }
 

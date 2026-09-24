@@ -138,6 +138,7 @@ function render() {
   const showStamp = document.getElementById('opt-stamp').checked;
   const showBank  = document.getElementById('opt-bank').checked;
   const { order, items, shipments, payments, company } = DATA;
+  const qset = DATA.quotation || {};
 
   const isStatement = type === 'statement';
   const title = isStatement ? '거래명세서' : '견 적 서';
@@ -169,9 +170,31 @@ function render() {
     supply = order.supply_amount || 0; vat = order.vat_amount || 0;
     exempt = order.exempt_amount || 0; total = order.total || 0;
   }
+  // 거래명세서는 실제 출고분만 싣기 때문에 문서 단위 할인을 적용하지 않는다
+  const discount = isStatement ? 0 : (order.discount || 0);
 
   const minRows = 8;   // 빈 줄을 채워 표 모양을 유지한다
   const blanks = Math.max(0, minRows - rows.length);
+
+  /* 조건은 건별 값이 먼저고, 없으면 찍지 않는다. 납기·결제조건은 예전엔
+   * 자유 메모에 섞여 들어가 문서에 정형으로 나오지 않았다. */
+  // 유효기간은 견적서에만 둔다. 이미 거래한 명세서에 붙으면 뜻이 없다.
+  const terms = [
+    ['유효기간', isStatement ? '' : order.valid_until],
+    ['납기',     order.delivery_terms],
+    ['결제조건', order.payment_terms],
+  ].filter(t => t[1]);
+
+  /* 유효기간 문구는 설정값(quotation.validity_days)을 쓴다. 30일 하드코딩이라
+   * 설정을 15일로 두어도 문서에는 30일이 찍혀 나갔다. */
+  const days = Number(qset.validity_days);
+  const validityLine = order.valid_until
+    ? `본 견적서는 ${esc(order.valid_until)} 까지 유효합니다.`
+    : (Number.isFinite(days) && days > 0
+        ? `본 견적서의 유효기간은 발행일로부터 ${days}일입니다.` : '');
+
+  // 건별 고객 메모가 없으면 설정의 기본 문구를 쓴다
+  const notes = order.memo_customer || (isStatement ? '' : (qset.default_remarks || ''));
 
   document.getElementById('sheet').innerHTML = `
     <h1 class="doc-title">${title}</h1>
@@ -242,6 +265,8 @@ function render() {
     <div class="summary">
       <table>
         ${isStatement ? '<tr><th colspan="2" style="text-align:center;background:#f8fafc;font-size:11px">이번 거래분</th></tr>' : ''}
+        ${discount ? `<tr><th>품목 합계</th><td>${num(supply + discount)}</td></tr>
+        <tr><th>할인</th><td>-${num(discount)}</td></tr>` : ''}
         <tr><th>공급가액</th><td>${num(supply)}</td></tr>
         ${exempt ? `<tr><th>면세</th><td>${num(exempt)}</td></tr>` : ''}
         <tr><th>부가세 (${Math.round(vatRate * 1000) / 10}%)</th><td>${num(vat)}</td></tr>
@@ -253,14 +278,14 @@ function render() {
       </table>
     </div>
 
-    ${order.memo_customer ? `<div class="notes"><h3>특기사항</h3>${esc(order.memo_customer)}</div>` : ''}
+    ${terms.length ? `<div class="notes"><h3>거래 조건</h3>${terms.map(t =>
+        `${esc(t[0])} : ${esc(t[1])}`).join('<br>')}</div>` : ''}
+
+    ${notes ? `<div class="notes"><h3>특기사항</h3>${esc(notes).replace(/\n/g,'<br>')}</div>` : ''}
 
     <div class="foot">
-      ${showBank && (company.bank_name || company.bank_account)
-        ? `입금계좌 : ${esc(company.bank_name || '')} ${esc(company.bank_account || '')} ${esc(company.bank_holder || company.name || '')}<br>` : ''}
-      ${isStatement
-        ? '위와 같이 거래하였음을 확인합니다.'
-        : '본 견적서의 유효기간은 발행일로부터 30일입니다.'}
+      ${showBank && company.bank_info ? `입금계좌 : ${esc(company.bank_info)}<br>` : ''}
+      ${isStatement ? '위와 같이 거래하였음을 확인합니다.' : validityLine}
     </div>
 
     ${showStamp ? `<div class="stamp">${esc(order.date || '')}<br><br>

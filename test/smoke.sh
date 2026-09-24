@@ -565,6 +565,39 @@ code -X DELETE "$BASE/api/quotations/$COID" >/dev/null
 check "  복사 테스트 정리됨"      0 \
       "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.customer==='ZZCOPYSRC').length")"
 
+# ── 문서 조건 · 할인 ────────────────────────────────────────
+echo
+echo "[문서 조건]"
+DOID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+       -d '{"customer":"ZZDOC"}' | jsonq 'JSON.parse(s).id')
+body -X PUT "$BASE/api/order_items/order/$DOID" -H 'Content-Type: application/json' \
+     -d '[{"name":"ZZDA","spec":"","unit":"EA","qty":1,"unit_price":1000000},
+          {"name":"ZZDB","spec":"","unit":"EA","qty":1,"unit_price":500000,"tax_free":1}]' >/dev/null
+check "할인 전 합계"              1600000 "$(body "$BASE/api/quotations/$DOID" | jsonq 'JSON.parse(s).total')"
+check "납기·결제조건 저장 -> 200" 200 \
+      "$(code -X PATCH "$BASE/api/quotations/$DOID/memo" -H 'Content-Type: application/json' \
+         -d '{"delivery_terms":"ZZ3WEEKS","payment_terms":"ZZ30-70","valid_until":"2026-12-31"}')"
+check "  인쇄 데이터에 납기"      "ZZ3WEEKS" \
+      "$(body "$BASE/api/print/quotations/$DOID" | jsonq 'JSON.parse(s).order.delivery_terms')"
+check "  인쇄 데이터에 결제조건"  "ZZ30-70" \
+      "$(body "$BASE/api/print/quotations/$DOID" | jsonq 'JSON.parse(s).order.payment_terms')"
+check "★ 인쇄가 설정 유효기간을 받음" "15" \
+      "$(body "$BASE/api/print/quotations/$DOID" | jsonq 'String(JSON.parse(s).quotation.validity_days)')"
+check "할인 100000 -> 200"        200 \
+      "$(code -X PATCH "$BASE/api/quotations/$DOID/tax" -H 'Content-Type: application/json' -d '{"discount":100000}')"
+check "★ 과세분에서만 깎임"       "900000|90000|500000|1490000" \
+      "$(body "$BASE/api/quotations/$DOID" | jsonq "[JSON.parse(s).supply_amount,JSON.parse(s).vat_amount,JSON.parse(s).exempt_amount,JSON.parse(s).total].join('|')")"
+check "음수 할인 -> 400"          400 \
+      "$(code -X PATCH "$BASE/api/quotations/$DOID/tax" -H 'Content-Type: application/json' -d '{"discount":-1}')"
+check "★ 과세분보다 큰 할인은 잘림" "0|0|500000|500000" \
+      "$(code -X PATCH "$BASE/api/quotations/$DOID/tax" -H 'Content-Type: application/json' -d '{"discount":9999999}' >/dev/null;
+         body "$BASE/api/quotations/$DOID" | jsonq "[JSON.parse(s).supply_amount,JSON.parse(s).vat_amount,JSON.parse(s).exempt_amount,JSON.parse(s).total].join('|')")"
+code -X PATCH "$BASE/api/quotations/$DOID/tax" -H 'Content-Type: application/json' -d '{"discount":0}' >/dev/null
+check "  할인 해제하면 되돌아옴"  1600000 "$(body "$BASE/api/quotations/$DOID" | jsonq 'JSON.parse(s).total')"
+code -X DELETE "$BASE/api/quotations/$DOID" >/dev/null
+check "  문서 조건 테스트 정리됨" 0 \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.customer==='ZZDOC').length")"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"
