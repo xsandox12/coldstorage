@@ -1724,6 +1724,11 @@ async function handle(req, res) {
     const srcId = parseInt(mCopy[1], 10);
     const src = db.prepare('SELECT * FROM quotations WHERE id=?').get(srcId);
     if (!src) return json(res, 404, { ok:false, error:'원본을 찾을 수 없습니다.' });
+    /* 이관된 옛 건은 품목 행 없이 items 요약 문자열과 금액만 있다. 그대로 복사하면
+     * "경첩 [k-702]" 라고 적힌 0원짜리 견적이 생겨 목록에서 진짜와 구분되지 않는다. */
+    const srcItems = db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(srcId);
+    if (!srcItems.length)
+      return json(res, 400, { ok:false, error:'이 건에는 품목 내역이 없어 복사할 것이 없습니다. 새 판매로 만드세요.' });
 
     const now = new Date();
     const no = nextOrderNo(now);
@@ -1741,14 +1746,13 @@ async function handle(req, res) {
       const id = db.prepare(`INSERT INTO quotations (${names.join(',')})
                              VALUES (${names.map(()=>'?').join(',')})`).run(...vals).lastInsertRowid;
 
-      const items = db.prepare('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order,id').all(srcId);
       const ins = db.prepare(`INSERT INTO order_items (order_id,name,spec,unit,qty,unit_price,shipped_qty,note,sort_order,amount,tax_free)
                               VALUES (?,?,?,?,?,?,0,?,?,?,?)`);
-      items.forEach((it, i) => ins.run(id, it.name, it.spec||'', it.unit||'EA', it.qty||0,
-                                       it.unit_price||0, it.note||'', i,
-                                       Math.round((it.qty||0)*(it.unit_price||0)), it.tax_free?1:0));
+      srcItems.forEach((it, i) => ins.run(id, it.name, it.spec||'', it.unit||'EA', it.qty||0,
+                                          it.unit_price||0, it.note||'', i,
+                                          Math.round((it.qty||0)*(it.unit_price||0)), it.tax_free?1:0));
       db.prepare('INSERT INTO quotation_sources (order_id,source_quotation_id,source_item_ids) VALUES (?,?,?)')
-        .run(id, srcId, JSON.stringify(items.map(it => it.id)));
+        .run(id, srcId, JSON.stringify(srcItems.map(it => it.id)));
       recalcTotal(LINE_ITEM.sales, id);
       return id;
     })();

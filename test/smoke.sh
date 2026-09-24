@@ -559,6 +559,9 @@ check "  비고·면세 승계"          "ZZN|1" \
       "$(body "$BASE/api/order_items/order/$NEWID" | jsonq "JSON.parse(s)[0].note+'|'+JSON.parse(s)[0].tax_free")"
 check "  출처가 기록됨"           "$COID" \
       "$(body "$BASE/api/quotations/$NEWID/history" | jsonq "String((JSON.parse(s).sources||[])[0]?.source_quotation_id||'')")"
+EMPTYID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' -d '{"customer":"ZZCOPYEMPTY"}' | jsonq 'JSON.parse(s).id')
+check "★ 품목 없는 건 복사 -> 400" 400 "$(code -X POST "$BASE/api/quotations/$EMPTYID/copy" -H 'Content-Type: application/json' -d '{}')"
+code -X DELETE "$BASE/api/quotations/$EMPTYID" >/dev/null
 check "없는 건 복사 -> 404"       404 "$(code -X POST "$BASE/api/quotations/999999/copy" -H 'Content-Type: application/json' -d '{}')"
 code -X DELETE "$BASE/api/quotations/$NEWID" >/dev/null
 code -X DELETE "$BASE/api/quotations/$COID" >/dev/null

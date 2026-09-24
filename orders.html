@@ -299,7 +299,11 @@
     <div class="bg-slate-50 rounded-lg p-3 mb-4">
       <label class="text-xs text-slate-500 mb-1 block">지금 화면의 품목을 템플릿으로 저장</label>
       <div class="flex gap-2">
+        <!-- common.js 의 Enter 위임 핸들러는 모달의 "마지막으로 보이는 버튼" 을 누른다.
+             이 모달은 목록 아래 "닫기" 로 끝나서, 이름을 치고 Enter 하면 저장 대신
+             모달이 닫혀 버린다. 여기서 먼저 받아 저장으로 보낸다. -->
         <input id="tpl-name" type="text" placeholder="예) 2평형 냉동창고 기본"
+               onkeydown="if (event.key === 'Enter' && !event.isComposing) { event.stopPropagation(); event.preventDefault(); saveTemplate(); }"
                class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
         <button onclick="guard(this, saveTemplate)" class="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap">저장</button>
       </div>
@@ -942,6 +946,8 @@ async function deleteTemplate(id) {
 /* 저장한 품목 중 카탈로그에 없는 것을 되돌려 등록한다.
  * 서버가 정규화 비교로 중복을 걸러내므로 여기서는 묻기만 한다. */
 async function offerCatalogInsert() {
+  // server.js 의 normItem 과 같은 규칙이어야 한다. 한쪽만 고치면 화면은 새 품목이라고
+  // 묻는데 서버는 중복이라 건너뛰어, 눌러도 아무것도 안 늘어난다.
   const key = (n, s) => `${n}|${s}`.replace(/[\s()[\]{}·・,\-_/]/g, '').toLowerCase();
   const have = new Set(products.map(p => key(p.name, catSpec(p))));
   const seen = new Set();
