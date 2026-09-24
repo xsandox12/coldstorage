@@ -259,6 +259,36 @@
   </div>
 </div>
 
+<!-- 카탈로그에서 품목을 골라 넣는다. 카탈로그가 비어 있어도 저장할 때마다
+     새 품목이 역등록되므로 쓸수록 채워진다. -->
+<div id="catalog-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+  <div class="bg-white rounded-2xl p-6 w-[640px] shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-bold text-base">카탈로그에서 가져오기</h2>
+      <button onclick="closeCatalogModal()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+    </div>
+    <input id="cat-q" type="text" placeholder="품목명 · 규격으로 검색" oninput="renderCatalog()"
+           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 mb-3">
+    <div class="border border-slate-200 rounded-lg max-h-72 overflow-y-auto">
+      <table class="w-full text-xs">
+        <thead class="bg-slate-50 text-slate-500 sticky top-0">
+          <tr><th class="p-2 w-8"></th><th class="p-2 text-left font-medium">품목명</th>
+              <th class="p-2 text-left font-medium">규격</th><th class="p-2 text-left font-medium w-14">단위</th>
+              <th class="p-2 text-right font-medium w-24">단가</th></tr>
+        </thead>
+        <tbody id="cat-tbody"></tbody>
+      </table>
+    </div>
+    <div class="flex justify-between items-center mt-4">
+      <span class="text-xs text-slate-400" id="cat-count"></span>
+      <div class="flex gap-2">
+        <button onclick="closeCatalogModal()" class="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">닫기</button>
+        <button onclick="insertFromCatalog()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">선택 항목 넣기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 const STATUS_LABEL = SALES_STATUS_LABEL;   // common.js — cancelled 포함
@@ -271,12 +301,14 @@ const ALL_STATUSES = [
 ];
 
 let orders = [], customers = [], curFilter = 'all', curId = null, curItems = [], curPayments = [];
+let products = [];   // 카탈로그. 저장할 때마다 새 품목이 역등록돼 늘어난다
 
 // ─── 초기화 ──────────────────────────────────────────────────
 async function init() {
-  [orders, customers] = await Promise.all([
+  [orders, customers, products] = await Promise.all([
     api.get('/api/quotations'),
     api.get('/api/customers'),
+    api.get('/api/products'),
   ]);
   orders.sort((a,b) => b.id - a.id);
   renderList();
@@ -582,6 +614,8 @@ function renderItemsTab(tc) {
         </label>
       </div>
       ${!isDone ? `<div class="flex gap-2">
+        <button onclick="openCatalogModal()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50"
+                title="등록된 품목에서 골라 넣습니다">📦 카탈로그</button>
         <button onclick="addItemRow()" class="text-xs px-3 py-1 border border-slate-200 rounded-lg hover:bg-slate-50">+ 행 추가</button>
         <button onclick="guard(this, saveItems)" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">저장</button>
       </div>` : ''}
@@ -694,6 +728,76 @@ function addItemRow() {
   renderTab('items');
 }
 
+// ─── 카탈로그 ────────────────────────────────────────────────
+/* products 의 note 가 규격 자리다 (products 에는 spec 컬럼이 없다).
+ * 넣고 뺄 때 양쪽에서 같은 매핑을 쓴다. */
+const catSpec = p => p.note || '';
+
+function openCatalogModal() {
+  document.getElementById('cat-q').value = '';
+  document.getElementById('catalog-modal').classList.remove('hidden');
+  renderCatalog();
+  document.getElementById('cat-q').focus();
+}
+function closeCatalogModal() { document.getElementById('catalog-modal').classList.add('hidden'); }
+
+function renderCatalog() {
+  const q = document.getElementById('cat-q').value.trim().toLowerCase();
+  const hit = products.filter(p => !q ||
+    `${p.name} ${catSpec(p)} ${p.cat1||''} ${p.cat2||''}`.toLowerCase().includes(q));
+  document.getElementById('cat-tbody').innerHTML = hit.length ? hit.map(p => `
+    <tr class="border-t border-slate-50 hover:bg-slate-50">
+      <td class="p-2 text-center"><input type="checkbox" class="cat-pick" value="${p.id}"></td>
+      <td class="p-2">${esc(p.name)}</td>
+      <td class="p-2 text-slate-500">${esc(catSpec(p))}</td>
+      <td class="p-2">${esc(p.unit||'EA')}</td>
+      <td class="p-2 text-right">${(p.price||0).toLocaleString()}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="5" class="p-6 text-center text-slate-400">
+         ${products.length ? '검색 결과가 없습니다.'
+           : '카탈로그가 비어 있습니다. 품목을 적고 저장하면 여기에 쌓입니다.'}</td></tr>`;
+  document.getElementById('cat-count').textContent = `${hit.length} / ${products.length}건`;
+}
+
+function insertFromCatalog() {
+  const ids = [...document.querySelectorAll('.cat-pick:checked')].map(c => parseInt(c.value, 10));
+  if (!ids.length) return toast('넣을 품목을 고르세요.', 'error');
+  ids.forEach(id => {
+    const p = products.find(x => x.id === id);
+    if (!p) return;
+    curItems.push({ name: p.name, spec: catSpec(p), unit: p.unit || 'EA',
+                    qty: 1, unit_price: p.price || 0, shipped_qty: 0, note: '', tax_free: 0 });
+  });
+  closeCatalogModal();
+  renderTab('items');
+  toast(`${ids.length}건을 넣었습니다.`);
+}
+
+/* 저장한 품목 중 카탈로그에 없는 것을 되돌려 등록한다.
+ * 서버가 정규화 비교로 중복을 걸러내므로 여기서는 묻기만 한다. */
+async function offerCatalogInsert() {
+  const key = (n, s) => `${n}|${s}`.replace(/[\s()[\]{}·・,\-_/]/g, '').toLowerCase();
+  const have = new Set(products.map(p => key(p.name, catSpec(p))));
+  const seen = new Set();
+  const fresh = curItems.filter(it => {
+    const n = (it.name || '').trim();
+    if (!n || !(it.unit_price > 0)) return false;   // 단가 없는 행은 카탈로그에 쓸모없다
+    const k = key(n, it.spec || '');
+    if (have.has(k) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (!fresh.length) return;
+  if (!confirm(`카탈로그에 없는 품목 ${fresh.length}건이 있습니다.\n` +
+               fresh.map(it => `· ${it.name}${it.spec ? ' ['+it.spec+']' : ''} ${(it.unit_price||0).toLocaleString()}원`).join('\n') +
+               `\n\n카탈로그에 추가할까요?`)) return;
+  const r = await tryApi(() => api.post('/api/products/bulk', fresh.map(it => ({
+    name: it.name, spec: it.spec || '', unit: it.unit || 'EA', unit_price: it.unit_price }))));
+  if (!r) return;
+  products = await api.get('/api/products');
+  toast(`카탈로그에 ${r.added}건을 추가했습니다.`);
+}
+
 function removeItem(i) {
   const it = curItems[i];
   if ((it?.shipped_qty || 0) > 0 &&
@@ -717,6 +821,7 @@ async function saveItems() {
       !confirm(`이 주문에는 품목 내역이 없지만 금액 ${won(order.total)} 이 기록돼 있습니다.\n` +
                `빈 목록으로 저장하면 금액이 0원이 되고 미수금도 사라집니다.\n\n계속할까요?`)) return;
   if (!await tryApi(() => api.put(`/api/order_items/order/${curId}`, curItems), '저장됐습니다.')) return;
+  await offerCatalogInsert();   // curItems 가 selectOrder 로 갈리기 전에 묻는다
   orders = await api.get('/api/quotations');
   orders.sort((a,b) => b.id - a.id);
   renderList();

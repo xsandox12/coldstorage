@@ -450,6 +450,28 @@ check "발주 삭제 -> 200"          200 "$(code -X DELETE "$BASE/api/purchases
 check "  품목도 함께 삭제"        0 \
       "$(body "$BASE/api/purchase_items/purchase/$PID" | jsonq 'JSON.parse(s).length')"
 
+# ── 카탈로그 역등록 ─────────────────────────────────────────
+echo
+echo "[카탈로그]"
+PBEFORE=$(body "$BASE/api/products" | jsonq 'JSON.parse(s).length')
+# 표기만 다른 같은 품목 두 건. 정규화 비교로 한 건만 들어가야 한다.
+BULK='[{"name":"ZZPANEL (GRAY)","spec":"100T","unit":"EA","unit_price":72000},
+       {"name":"ZZPANEL GRAY","spec":"100 T","unit":"EA","unit_price":80000}]'
+check "카탈로그 역등록 -> 200"    200 \
+      "$(code -X POST "$BASE/api/products/bulk" -H 'Content-Type: application/json' -d "$BULK")"
+check "★ 표기만 다른 중복은 한 건만" 1 \
+      "$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name.indexOf('ZZPANEL')===0).length")"
+check "  단가·규격이 들어감"      "72000|100T" \
+      "$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name.indexOf('ZZPANEL')===0).map(p=>p.price+'|'+p.note).join('')")"
+code -X POST "$BASE/api/products/bulk" -H 'Content-Type: application/json' -d "$BULK" >/dev/null
+check "★ 다시 보내도 늘지 않음"   1 \
+      "$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name.indexOf('ZZPANEL')===0).length")"
+check "배열이 아니면 400"         400 \
+      "$(code -X POST "$BASE/api/products/bulk" -H 'Content-Type: application/json' -d '{"name":"x"}')"
+CATID=$(body "$BASE/api/products" | jsonq "JSON.parse(s).find(p=>p.name.indexOf('ZZPANEL')===0).id")
+code -X DELETE "$BASE/api/products/$CATID" >/dev/null
+check "  정리 후 원래 개수"       "$PBEFORE" "$(body "$BASE/api/products" | jsonq 'JSON.parse(s).length')"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"

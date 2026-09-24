@@ -304,6 +304,13 @@ const normName = s => String(s || '')
   .replace(/\s+/g, '')
   .toLowerCase();
 
+/* 품목 비교용 정규화. 실제 입력을 보면 같은 물건이 "우레탄판넬 회색스타코",
+ * "우레탄판넬 (회색스타코)", "우레탄판넬(회색스타코)" 세 가지로 적혀 있다.
+ * 글자 그대로 비교하면 카탈로그에 이미 있는 품목을 계속 다시 등록한다. */
+const normItem = (name, spec) => (String(name || '') + '|' + String(spec || ''))
+  .replace(/[\s()[\]{}·・,\-_/]/g, '')
+  .toLowerCase();
+
 /** 정규화하면 같아지는 거래처 묶음 (2곳 이상인 것만) */
 function similarGroups() {
   const by = new Map();
@@ -1549,6 +1556,33 @@ async function handle(req, res) {
       body.address_base||'', body.address_detail||'', body.address_post||'',
       body.status||'NORMAL', body.price_group||'A');
     return json(res, 200, { ok:true, id, name, similar });
+  }
+
+  /* 견적에 적은 품목을 카탈로그로 돌려보낸다. 카탈로그는 비어 있고(시드 6건이
+   * 전부 더미다) 앞으로도 따로 채워 넣을 사람이 없다. 쓰면서 쌓이게 한다.
+   * 이미 있는 품목은 조용히 건너뛴다 — 단가를 덮어쓰면 견적마다 값이 달라
+   * 카탈로그가 마지막 견적을 따라다니게 된다. */
+  if (pathname === '/api/products/bulk' && method === 'POST') {
+    const body = await parseBody(req);
+    if (!Array.isArray(body)) return json(res, 400, { ok:false, error:'배열이어야 합니다.' });
+    const have = new Set(db.prepare('SELECT name,note FROM products').all()
+                           .map(p => normItem(p.name, p.note)));
+    const ins = db.prepare(`INSERT INTO products (cat1,cat2,cat3,cat4,name,unit,price,note)
+                            VALUES ('','','','',?,?,?,?)`);
+    const added = [];
+    db.transaction(() => {
+      for (const it of body) {
+        const name = String(it?.name || '').trim();
+        if (!name) continue;
+        const spec = String(it?.spec || '').trim();
+        const k = normItem(name, spec);
+        if (have.has(k)) continue;
+        have.add(k);
+        ins.run(name, String(it.unit || 'EA'), Math.max(0, parseInt(it.unit_price, 10) || 0), spec);
+        added.push(name);
+      }
+    })();
+    return json(res, 200, { ok:true, added: added.length, names: added });
   }
 
   // ── POST /api/quotations ─────────────────────────────────────
