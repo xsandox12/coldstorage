@@ -472,6 +472,42 @@ CATID=$(body "$BASE/api/products" | jsonq "JSON.parse(s).find(p=>p.name.indexOf(
 code -X DELETE "$BASE/api/products/$CATID" >/dev/null
 check "  정리 후 원래 개수"       "$PBEFORE" "$(body "$BASE/api/products" | jsonq 'JSON.parse(s).length')"
 
+# ── 지난 단가 힌트 ──────────────────────────────────────────
+echo
+echo "[단가 힌트]"
+HOID=$(body -X POST "$BASE/api/quotations" -H 'Content-Type: application/json' \
+       -d "{\"date\":\"2026-01-05\",\"customer\":\"ZZHINT\"}" | jsonq 'JSON.parse(s).id')
+body -X PUT "$BASE/api/order_items/order/$HOID" -H 'Content-Type: application/json' \
+     -d '[{"name":"ZZHINTITEM (A)","spec":"100T","unit":"EA","qty":1,"unit_price":51000}]' >/dev/null
+check "이력에서 단가를 찾음"      51000 \
+      "$(body "$BASE/api/price-hint?name=ZZHINTITEM%20(A)&spec=100T" | jsonq 'JSON.parse(s).price')"
+check "  근거가 history"          "history" \
+      "$(body "$BASE/api/price-hint?name=ZZHINTITEM%20(A)&spec=100T" | jsonq 'JSON.parse(s).source')"
+check "★ 띄어쓰기·괄호가 달라도 같은 품목" 51000 \
+      "$(body "$BASE/api/price-hint?name=ZZHINTITEM%20A&spec=100%20T" | jsonq 'JSON.parse(s).price')"
+check "모르는 품목은 null"        "null" \
+      "$(body "$BASE/api/price-hint?name=ZZNOSUCHITEM&spec=" | jsonq 'String(JSON.parse(s).price)')"
+check "이름이 비면 null"          "null" \
+      "$(body "$BASE/api/price-hint?name=&spec=" | jsonq 'String(JSON.parse(s).price)')"
+# 카탈로그는 이력이 없을 때만 쓰인다
+body -X POST "$BASE/api/products/bulk" -H 'Content-Type: application/json' \
+     -d '[{"name":"ZZCATONLY","spec":"50T","unit":"EA","unit_price":33000}]' >/dev/null
+check "이력이 없으면 카탈로그"    "33000|catalog" \
+      "$(body "$BASE/api/price-hint?name=ZZCATONLY&spec=50T" | jsonq "JSON.parse(s).price+'|'+JSON.parse(s).source")"
+# 비고와 행 순서가 살아남는지
+body -X PUT "$BASE/api/order_items/order/$HOID" -H 'Content-Type: application/json' \
+     -d '[{"name":"ZZSECOND","spec":"","unit":"EA","qty":1,"unit_price":100,"note":"ZZNOTE"},
+          {"name":"ZZHINTITEM (A)","spec":"100T","unit":"EA","qty":1,"unit_price":51000}]' >/dev/null
+check "★ 행 순서가 저장됨"        "ZZSECOND" \
+      "$(body "$BASE/api/order_items/order/$HOID" | jsonq 'JSON.parse(s)[0].name')"
+check "★ 비고가 저장됨"           "ZZNOTE" \
+      "$(body "$BASE/api/order_items/order/$HOID" | jsonq 'JSON.parse(s)[0].note')"
+code -X DELETE "$BASE/api/quotations/$HOID" >/dev/null
+CATID2=$(body "$BASE/api/products" | jsonq "JSON.parse(s).filter(p=>p.name.indexOf('ZZCATONLY')===0).map(p=>p.id).join('')")
+code -X DELETE "$BASE/api/products/$CATID2" >/dev/null
+check "  힌트 테스트 정리됨"      0 \
+      "$(body "$BASE/api/quotations" | jsonq "JSON.parse(s).filter(q=>q.customer==='ZZHINT').length")"
+
 # ── 정리 ────────────────────────────────────────────────────
 echo
 echo "[정리]"

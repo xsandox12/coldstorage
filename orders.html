@@ -626,13 +626,14 @@ function renderItemsTab(tc) {
           <tr>
             <th class="p-2 text-left font-medium">품목명</th>
             <th class="p-2 text-left font-medium">규격</th>
+            <th class="p-2 text-left font-medium">비고</th>
             <th class="p-2 text-right font-medium w-16">수량</th>
             <th class="p-2 text-left font-medium w-14">단위</th>
-            <th class="p-2 text-right font-medium w-24">단가</th>
+            <th class="p-2 text-right font-medium w-28">단가</th>
             <th class="p-2 text-right font-medium w-24">금액</th>
             <th class="p-2 text-center font-medium w-12">면세</th>
             <th class="p-2 text-right font-medium w-16">출고</th>
-            ${!isDone ? '<th class="p-2 w-8"></th>' : ''}
+            ${!isDone ? '<th class="p-2 w-20"></th>' : ''}
           </tr>
         </thead>
         <tbody id="items-tbody">
@@ -642,6 +643,7 @@ function renderItemsTab(tc) {
       <div class="border-t border-slate-100 bg-slate-50 p-3" id="items-summary">${itemsSummary(order)}</div>
     </div>
   `;
+  if (!isDone) loadHints();
 }
 
 /* 합계는 서버 계산과 같은 규칙으로 화면에서도 보여준다.
@@ -693,25 +695,72 @@ function itemRow(it, i, isDone) {
   const amt = (it.qty||0)*(it.unit_price||0);
   if (isDone) return `<tr class="border-t border-slate-50">
     <td class="p-2">${esc(it.name)}</td><td class="p-2 text-slate-500">${esc(it.spec||'')}</td>
+    <td class="p-2 text-slate-500">${esc(it.note||'')}</td>
     <td class="p-2 text-right">${qty(it.qty)}</td><td class="p-2">${esc(it.unit)}</td>
     <td class="p-2 text-right">${(it.unit_price||0).toLocaleString()}</td>
     <td class="p-2 text-right">${amt.toLocaleString()}</td>
     <td class="p-2 text-center">${it.tax_free ? '면세' : ''}</td>
     <td class="p-2 text-right text-blue-600">${qty(it.shipped_qty)}</td>
   </tr>`;
+  const last = curItems.length - 1;
   return `<tr class="item-row border-t border-slate-50" data-idx="${i}">
-    <td class="p-1"><input value="${esc(it.name||'')}" placeholder="품목명" onchange="curItems[${i}].name=this.value"></td>
-    <td class="p-1"><input value="${esc(it.spec||'')}" placeholder="규격" onchange="curItems[${i}].spec=this.value"></td>
+    <td class="p-1"><input value="${esc(it.name||'')}" placeholder="품목명" onchange="curItems[${i}].name=this.value;loadHint(${i})"></td>
+    <td class="p-1"><input value="${esc(it.spec||'')}" placeholder="규격" onchange="curItems[${i}].spec=this.value;loadHint(${i})"></td>
+    <td class="p-1"><input value="${esc(it.note||'')}" placeholder="비고" onchange="curItems[${i}].note=this.value"></td>
     <td class="p-1"><input type="number" value="${it.qty||0}" min="0" step="0.01" style="width:60px" onchange="curItems[${i}].qty=parseFloat(this.value)||0;updateAmounts()"></td>
     <td class="p-1"><input value="${esc(it.unit||'EA')}" style="width:50px" onchange="curItems[${i}].unit=this.value"></td>
-    <td class="p-1"><input type="number" value="${it.unit_price||0}" min="0" style="width:90px;text-align:right" onchange="curItems[${i}].unit_price=parseInt(this.value)||0;updateAmounts()"></td>
+    <td class="p-1 text-right">
+      <input type="number" value="${it.unit_price||0}" min="0" style="width:90px;text-align:right" onchange="curItems[${i}].unit_price=parseInt(this.value)||0;updateAmounts()">
+      <div class="text-[10px] text-slate-400 mt-0.5 h-3 leading-3" id="hint-${i}"></div>
+    </td>
     <td class="p-2 text-right item-amt">${amt.toLocaleString()}</td>
     <td class="p-2 text-center"><input type="checkbox"${it.tax_free ? ' checked' : ''}
         title="면세 품목 — 과세표준에서 제외됩니다"
         onchange="curItems[${i}].tax_free = this.checked ? 1 : 0; updateAmounts()"></td>
     <td class="p-2 text-right text-blue-600">${qty(it.shipped_qty)}</td>
-    <td class="p-1 text-center"><button onclick="removeItem(${i})" class="text-slate-300 hover:text-red-400 text-base">×</button></td>
+    <td class="p-1 text-center whitespace-nowrap">
+      <button onclick="moveItem(${i},-1)" ${i === 0 ? 'disabled' : ''} title="위로"
+              class="text-slate-300 hover:text-slate-600 disabled:opacity-20 disabled:hover:text-slate-300">↑</button>
+      <button onclick="moveItem(${i},1)" ${i === last ? 'disabled' : ''} title="아래로"
+              class="text-slate-300 hover:text-slate-600 disabled:opacity-20 disabled:hover:text-slate-300">↓</button>
+      <button onclick="removeItem(${i})" class="text-slate-300 hover:text-red-400 text-base">×</button>
+    </td>
   </tr>`;
+}
+
+/* 행 순서. sort_order 컬럼은 예전부터 있었지만 바꿀 방법이 없었다.
+ * 저장할 때 서버가 배열 순서대로 sort_order 를 매긴다. */
+function moveItem(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= curItems.length) return;
+  [curItems[i], curItems[j]] = [curItems[j], curItems[i]];
+  renderTab('items');
+}
+
+/* 단가를 모르는 행에 "지난번엔 얼마였는지" 를 보여준다. 자동으로 채우지는
+ * 않는다 — 일부러 0 으로 둔 행을 덮어쓰면 합계가 조용히 달라진다. */
+async function loadHint(i) {
+  const box = document.getElementById(`hint-${i}`);
+  const it = curItems[i];
+  if (!box || !it || !it.name) return;
+  if (it.unit_price > 0) { box.innerHTML = ''; return; }
+  let r;
+  try { r = await api.get(`/api/price-hint?name=${encodeURIComponent(it.name)}&spec=${encodeURIComponent(it.spec||'')}`); }
+  catch { return; }
+  if (!r?.price) { box.innerHTML = ''; return; }
+  const from = r.source === 'history' ? (r.at ? `${r.at} 견적` : '지난 견적') : '카탈로그';
+  box.innerHTML = `<button onclick="applyHint(${i},${r.price})" class="text-blue-500 hover:underline"
+                     title="${esc(from)}의 단가를 넣습니다">${r.price.toLocaleString()} 적용</button>`;
+}
+
+function applyHint(i, price) {
+  curItems[i].unit_price = price;
+  renderTab('items');
+}
+
+/** 단가가 비어 있는 행에만 힌트를 붙인다 */
+function loadHints() {
+  curItems.forEach((it, i) => { if (it.name && !(it.unit_price > 0)) loadHint(i); });
 }
 
 function updateAmounts() {
@@ -1102,10 +1151,18 @@ window.addEventListener('message', async e => {
   }
 
   closeDrawing();
-  // 단가는 도면이 알 수 없다. 품목만 채우고 단가는 사람이 넣는다.
+  // 도면은 단가를 모른다. 같은 품목을 전에 얼마에 적었는지 서버에 물어 채운다.
+  // 근거가 없으면 0 으로 두고 사람이 넣는다.
+  const hints = await Promise.all(items.map(it =>
+    api.get(`/api/price-hint?name=${encodeURIComponent(it.name)}&spec=${encodeURIComponent(it.spec)}`)
+       .catch(() => null)));
+  let filled = 0;
+  hints.forEach((h, i) => { if (h?.price) { items[i].unit_price = h.price; filled++; } });
+
   const next = replace ? items : [...curItems, ...items];
   if (!await tryApi(() => api.put(`/api/order_items/order/${orderId}`, next),
-                    `${items.length}개 품목을 가져왔습니다. 단가를 입력하세요.`)) return;
+                    `${items.length}개 품목을 가져왔습니다.` +
+                    (filled ? ` 단가 ${filled}건은 지난 기록에서 채웠습니다.` : ' 단가를 입력하세요.'))) return;
   // 도면 id 를 남겨 나중에 같은 도면을 다시 열 수 있게 한다
   if (drawingId) await tryApi(() => api.patch(`/api/quotations/${orderId}/drawing`, { drawing_id: String(drawingId) }));
 

@@ -1558,6 +1558,27 @@ async function handle(req, res) {
     return json(res, 200, { ok:true, id, name, similar });
   }
 
+  /* 이 품목을 얼마에 적었었는지 알려준다. 근거는 두 가지뿐이고 순서가 있다 —
+   * ① 같은 품목을 실제로 넣었던 가장 최근 견적의 단가, ② 카탈로그 가격.
+   * 실제 거래가가 카탈로그 정가보다 앞선다.
+   * 비교는 normItem 으로 한다. 띄어쓰기와 괄호만 다른 같은 품목이 흔하다. */
+  if (pathname === '/api/price-hint' && method === 'GET') {
+    const key = normItem(req.query.name, req.query.spec);
+    if (!key || key === '|') return json(res, 200, { ok:true, price:null });
+
+    const hist = db.prepare(`SELECT i.name, i.spec, i.unit_price, q.date
+                             FROM order_items i JOIN quotations q ON q.id = i.order_id
+                             WHERE i.unit_price > 0 ORDER BY q.date DESC, i.id DESC`).all()
+                   .find(r => normItem(r.name, r.spec) === key);
+    if (hist) return json(res, 200, { ok:true, price: hist.unit_price, source:'history', at: hist.date || '' });
+
+    const cat = db.prepare('SELECT name,note,price FROM products WHERE price > 0').all()
+                  .find(p => normItem(p.name, p.note) === key);
+    if (cat) return json(res, 200, { ok:true, price: cat.price, source:'catalog', at:'' });
+
+    return json(res, 200, { ok:true, price:null });
+  }
+
   /* 견적에 적은 품목을 카탈로그로 돌려보낸다. 카탈로그는 비어 있고(시드 6건이
    * 전부 더미다) 앞으로도 따로 채워 넣을 사람이 없다. 쓰면서 쌓이게 한다.
    * 이미 있는 품목은 조용히 건너뛴다 — 단가를 덮어쓰면 견적마다 값이 달라
